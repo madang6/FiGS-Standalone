@@ -2,6 +2,8 @@ import os
 import shutil
 import json
 import yaml
+import time
+import statistics
 import torch
 import numpy as np
 import figs.utilities.trajectory_helper as th
@@ -196,7 +198,8 @@ class Simulator:
                  t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                  query:str|None=None,
                  clipseg:bool=False,
-                 validation:bool=False
+                 validation:bool=False,
+                 verbose:bool=False
                  ) -> Tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
         """
         Simulates the flight.
@@ -207,6 +210,9 @@ class Simulator:
             - x0:       Initial state.
             - obj:      Objective to use for the simulation.
         """
+        def log(*args, **kwargs):
+            if verbose:
+                print(*args, **kwargs)
 
         # Check if frame is loaded
         if self.solver is None:
@@ -262,6 +268,9 @@ class Simulator:
         # Instantiate camera object
         camera = self.gsplat.generate_output_camera(cam_cfg)
 
+        if verbose:
+            times = []
+
         # Rollout
         for i in range(Nsim):
             # Get current time and state
@@ -278,8 +287,11 @@ class Simulator:
                     # img_cr = icr["semantic"]
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
-
+                    start = time.time()
                     icr = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                    end = time.time()
+                    if verbose:
+                        times.append(end-start)
                 elif perception == "semantic_depth" and perception_type != "clipseg" and query is not None:
                     image_dict = self.gsplat.render_rgb(camera,T_c2w,query)
                     icr = image_dict["semantic"]
@@ -344,6 +356,14 @@ class Simulator:
                 Uro[:,k] = ucm
                 Tsol[:,k] = tsol
                 Adv[:,k] = adv
+
+        if verbose:
+            total_time = sum(times)
+            print(f"Total inference time: {total_time:.2f} s")
+            print(f"Average time/frame: {statistics.mean(times)*1000:.1f} ms")
+            print(f"Median time/frame: {statistics.median(times)*1000:.1f} ms")
+            print(f"Min time/frame: {min(times)*1000:.1f} ms")
+            print(f"Max time/frame: {max(times)*1000:.1f} ms")
 
         if validation and perception_type != "clipseg" and query is not None:
             Iro = {"semantic":Imgs_sem,"depth":Imgs_depth,"rgb":Imgs_rgb,"validation":Imgs_val}
