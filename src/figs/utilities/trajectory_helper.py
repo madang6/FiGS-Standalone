@@ -5,7 +5,7 @@ Helper functions for trajectory data.
 import numpy as np
 import math
 
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 from scipy.spatial import cKDTree
 from scipy.interpolate import CubicSpline
 from sklearn.cluster import DBSCAN
@@ -16,7 +16,94 @@ from figs.tsampling.rrt_datagen_v10 import *
 
 import numpy as np
 
+def build_loiter_fragment(
+    tXUd_spin: np.ndarray,
+    tXUd_rrt:  np.ndarray,
+    t0:         float,
+    smooth_duration: float,
+    tail_duration:   float,
+    hz:        float
+) -> np.ndarray:
+    """
+    Given a spin-only tXUd and the original RRT tXUd, at sample time t0,
+    produce a combined (spin → smooth → tail) tXUd_full.
+    """
+    # --- PART 1: pad spin with any extra rows so it matches tXUd_rrt.shape[0] ---
+    n_input_rows   = tXUd_rrt.shape[0]
+    n_spin_rows    = tXUd_spin.shape[0]
+    n_cols_spin    = tXUd_spin.shape[1]
+    if n_spin_rows < n_input_rows:
+        extra = tXUd_rrt[n_spin_rows:, :1]                   # shape (n_extra,1)
+        extra = np.repeat(extra, n_cols_spin, axis=1)        # (n_extra,n_cols_spin)
+        tXUd_spin = np.vstack([tXUd_spin, extra])
 
+    # --- PART 2: build the smoothing segment via SLERP on quaternion + linear pos/vel ---
+    t_end        = tXUd_spin[0, -1]
+    nsmooth      = int(np.ceil(smooth_duration * hz))
+    tsmooth      = np.linspace(0, smooth_duration, nsmooth)
+
+    # endpoints for pos/vel
+    pos_spin_end = tXUd_spin[1:4, -1]
+    vel_spin_end = tXUd_spin[4:7, -1]
+    idx0         = np.searchsorted(tXUd_rrt[0], t0, side="right") - 1
+    pos_rrt      = tXUd_rrt[1:4, idx0]
+    vel_rrt      = tXUd_rrt[4:7, idx0]
+
+    alpha    = tsmooth / smooth_duration
+    pos_smo  = (1-alpha)*pos_spin_end[:,None] + alpha*pos_rrt[:,None]
+    vel_smo  = (1-alpha)*vel_spin_end[:,None] + alpha*vel_rrt[:,None]
+
+    # SLERP between spin-end quat and first tail quat
+    quat_spin_end = tXUd_spin[7:11, -1]    # xyzw
+    # find the first tail quaternion
+    idx_after     = np.searchsorted(tXUd_rrt[0], t0, side="right")
+    quat_tail0    = tXUd_rrt[7:11, idx_after]  # xyzw
+
+    # switch to scipy’s wxyz
+    qs = [quat_spin_end[3], quat_spin_end[0], quat_spin_end[1], quat_spin_end[2]]
+    qt = [quat_tail0[3],      quat_tail0[0],      quat_tail0[1],      quat_tail0[2]]
+
+    rotations = Rotation.from_quat([qs, qt])
+    slerp     = Slerp([0.0, smooth_duration], rotations)
+    interp    = slerp(tsmooth)
+    quat_smo_wxyz = interp.as_quat()              # (nsmooth,4)
+    # back to xyzw, shape (4, nsmooth)
+    quat_smo = quat_smo_wxyz[:, [1,2,3,0]].T
+
+    tXUd_smooth = np.vstack([
+        t_end + tsmooth,
+        pos_smo,
+        vel_smo,
+        quat_smo
+    ])
+
+    # pad any extra rows
+    n_smooth_rows = tXUd_smooth.shape[0]
+    if n_smooth_rows < n_input_rows:
+        extra = tXUd_rrt[n_smooth_rows:, idx0:idx0+1]
+        extra = np.repeat(extra, tXUd_smooth.shape[1], axis=1)
+        tXUd_smooth = np.vstack([tXUd_smooth, extra])
+
+    # --- PART 3: build the tail segment (~tail_duration seconds of RRT) ---
+    t_start_tail  = tXUd_rrt[0, idx_after]
+    idx_tail_end  = np.searchsorted(
+        tXUd_rrt[0], t_start_tail + tail_duration, side="right"
+    )
+    tXUd_tail_Ns  = tXUd_rrt[:, idx_after:idx_tail_end].copy()
+    tXUd_tail_Ns[0] += (t_end + smooth_duration - t_start_tail)
+
+    # enforce quaternion continuity on the tail
+    tail_quats = tXUd_tail_Ns[7:11, :]
+    q_prev     = quat_smo[:, -1]
+    for j in range(tail_quats.shape[1]):
+        if np.dot(q_prev, tail_quats[:, j]) < 0:
+            tail_quats[:, j] *= -1
+        q_prev = tail_quats[:, j]
+    tXUd_tail_Ns[7:11, :] = tail_quats
+
+    # --- CONCAT everything ---
+    tXUd_full = np.hstack([tXUd_spin, tXUd_smooth, tXUd_tail_Ns])
+    return tXUd_full
 
 def generate_spin_keyframes(
     name: str,
@@ -25,7 +112,7 @@ def generate_spin_keyframes(
     theta0: float,
     theta1: float,
     time: float,
-    N: int = 70
+    N: int = 35
 ) -> dict:
     """
     Spin in place from theta0→theta1 (shortest arc) + 360°,
@@ -39,9 +126,9 @@ def generate_spin_keyframes(
     abs_dθ    = abs(dθ)
 
     # 2) total angular distance
-    total_ang = abs_dθ + 2*np.pi
+    total_ang = abs_dθ + 2*np.pi + np.pi/4
 
-    rate = (abs_dθ + 2*np.pi) / time  # angular velocity
+    rate = (abs_dθ + 2*np.pi + np.pi/4) / time  # angular velocity
 
     def make_fo(angle: float, 
                 #rate: float, 
