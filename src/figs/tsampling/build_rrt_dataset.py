@@ -585,7 +585,7 @@ def generate_rrt_paths(
             showlegend=False
             )
 
-        if not config.get('gif'):
+        if not config.get('gif') and viz:
             print("Rendering the figure...")
             fig.show()
 
@@ -678,89 +678,6 @@ def generate_rrt_paths(
             print(f"Saved spinning GIF to {gif_path}")
         
     return trajset
-
-# def visualize_rrt_trajectories(simulator, scene, viz=False):
-
-#     def load_config_file(base_path, subfolder, filename):
-#         config_path = os.path.join(base_path, subfolder)
-#         for root, _, files in os.walk(config_path):
-#             if filename in files:
-#                 with open(os.path.join(root, filename), 'r') as file:
-#                     return yaml.safe_load(file), os.path.join(root, filename)
-#         raise FileNotFoundError(f"{filename} not found in {config_path}")
-
-#     # Load scene configuration
-#     scene_config,cfg_path = load_config_file(simulator.configs_path, "course", f"{scene}.yml")
-#     queries = scene_config.get("queries", [])
-#     if not queries:
-#         raise ValueError("No queries found in the scene.yml file.")
-#     radii = [(scene_config.get("r1", 0.5), scene_config.get("r2", 0.5))]
-#     Niter_RRT = scene_config.get("N", 1000)
-
-#     obj_targets, env_bounds, epcds, epcds_arr = get_objectives(simulator.gsplat, queries, viz)
-    
-#     # Obtain goal poses and object centroid
-#     goal_poses, obj_centroid = th.process_RRT_objectives(obj_targets, epcds_arr, env_bounds, radii)
-#     print(f"obj_centroid: {obj_centroid}")
-
-#     # Generate RRT* Paths
-#     trajset = generate_rrt_paths(cfg_path, simulator,
-#                                 epcds, epcds_arr, 
-#                                 queries, goal_poses, 
-#                                 obj_centroid, env_bounds, 
-#                                 Niter_RRT)
-
-#     # new_trajset = {}
-#     # for k, obj in enumerate(trajset):
-
-#     #     # Set the altitude of all trajectories for this particular object
-#     #     goal = obj_targets[queries.index(obj)].flatten()
-#     #     goal_z = goal[2]
-#     #     goal_z = -1.1 if goal_z > 0 else np.clip(goal_z, -1.1, -1.0)
-#     #     # print("goal: ", goal)
-#     #     print(f"Position: {obj_centroid[k]}, Goal X: {goal[0]}, Goal Y: {goal[1]}, Goal Z: {goal_z}")
-        
-#     #     # Set the altitude of all trajectories for this particular object
-#     #     updated_paths = th.set_RRT_altitude(trajset[obj], goal_z)
-
-#     #     # Filter branches
-#     #     filtered_branches = th.filter_branches(updated_paths)
-        
-#     #     # Replace trajset[obj] with the new list of branches
-#     #     new_trajset[obj] = filtered_branches
-
-#         # for idbr, positions in enumerate(trajset[obj]):
-
-
-#     # line_sets = []
-#     # for idbr, positions in enumerate(branches):
-#     #     # Ensure positions is an (M,3) float64 array
-#     #     pts = np.asarray(positions, dtype=np.float64).reshape(-1, 3)
-#     #     if len(pts) < 2:
-#     #         continue  # can’t draw a line with fewer than 2 points
-
-#     #     # Create edge list [(0,1), (1,2), …]
-#     #     edges = [[i, i+1] for i in range(len(pts)-1)]
-
-#     #     # Build the LineSet
-#     #     ls = o3d.geometry.LineSet(
-#     #         points=o3d.utility.Vector3dVector(pts),
-#     #         lines=o3d.utility.Vector2iVector(edges)
-#     #     )
-
-#     #     # Optionally color each branch differently
-#     #     # e.g. use a simple colormap or cycle through a fixed palette
-#     #     color = np.random.rand(3)  # random RGB
-#     #     ls.colors = o3d.utility.Vector3dVector([color for _ in edges])
-
-#     #     line_sets.append(ls)
-
-#     # # 3) Draw everything together
-#     # o3d.visualization.draw_geometries(
-#     #     [pcd, *line_sets],
-#     #     window_name="Point Cloud + Tree Branches",
-#     #     width=800, height=600
-#     # )
         
 def visualize_rrt_trajectories(trajset,
                                config_file,
@@ -1154,3 +1071,928 @@ def visualize_rrt_trajectories(trajset,
             print(f"Saved spinning GIF to {gif_path}")
         
     return trajset
+
+def visualize_single_trajectory(debug_info, pcd, obj_target, radius_info=None, config_filename=None, simulator=None):
+    """
+    Visualize a single trajectory from debug_info in 3D point cloud.
+    
+    Parameters:
+        debug_info (dict): Contains trajectory data with keys:
+            - 'obj_loc': object location
+            - 'positions': raw RRT positions 
+            - 'trajectory': parameterized trajectory
+            - 'smooth_trajectory': smoothed trajectory
+            - 'times': time points
+        pcd (o3d.geometry.PointCloud): The environment point cloud
+        obj_target (np.ndarray): Object position [x, y, z]
+        radius_info (dict, optional): Contains 'r1' and 'r2' for circles
+        config (dict, optional): Configuration dict with bounds and other settings
+        simulator (object, optional): Simulator object to check scene type
+    
+    Returns:
+        go.Figure: Plotly figure with the trajectory visualization
+    """
+    
+    def create_cylinder_between_points(p1, p2, radius=0.01, resolution=20):
+        """Create a cylinder mesh between two 3D points."""
+        direction = p2 - p1
+        length = np.linalg.norm(direction)
+        if length == 0: 
+            return None
+        direction /= length
+
+        # build unit‐height cylinder along Z
+        cyl = o3d.geometry.TriangleMesh.create_cylinder(radius, length, resolution, 4)
+        cyl.compute_vertex_normals()
+
+        # compute axis & angle between [0,0,1] and direction
+        z_axis = np.array([0,0,1.0])
+        axis = np.cross(z_axis, direction)
+        axis_len = np.linalg.norm(axis)
+        if axis_len < 1e-6:
+            # either parallel or anti‐parallel; if anti, rotate 180° around X
+            if np.dot(z_axis, direction) < 0:
+                R = o3d.geometry.get_rotation_matrix_from_axis_angle(np.pi * np.array([1,0,0]))
+            else:
+                R = np.eye(3)
+        else:
+            axis /= axis_len
+            angle = np.arccos(np.dot(z_axis, direction))
+            R = o3d.geometry.get_rotation_matrix_from_axis_angle(axis * angle)
+
+        cyl.rotate(R, center=(0,0,0))
+
+        # move to midpoint
+        midpoint = (p1 + p2) * 0.5
+        cyl.translate(midpoint)
+
+        return cyl
+
+    config = {}
+    # Check if the configuration file exists
+    if os.path.exists(config_filename):
+        with open(config_filename, 'r') as file:
+            config = yaml.safe_load(file) or {}
+        print("Configuration loaded from config.yml")
+
+    # Extract trajectory data
+    obj_loc = debug_info["obj_loc"]
+    positions = debug_info["positions"]  # Raw RRT positions
+    trajectory = debug_info["trajectory"]  # Parameterized trajectory
+    smooth_trajectory = debug_info["smooth_trajectory"]  # Smoothed trajectory
+    times = debug_info["times"]
+    
+    # Ensure obj_loc is properly formatted as array
+    obj_loc_flat = np.array(obj_loc).flatten()
+    
+    # Get point cloud data
+    pts = np.asarray(pcd.points)
+    cols = np.clip(np.asarray(pcd.colors), 0, 1)
+    rgb = (cols * 255).astype(int)
+    rgb_strs = [f"rgb({r},{g},{b})" for r,g,b in rgb]
+
+    # Create the main figure
+    fig = go.Figure(layout=dict(width=3200, height=2400))
+
+    # Add point cloud
+    fig.add_trace(go.Scatter3d(
+        x=pts[:,0], y=pts[:,1], z=pts[:,2],
+        mode="markers",
+        marker=dict(size=2, color=rgb_strs),
+        name="Environment",
+        showlegend=False
+    ))
+
+    # Add object location marker
+    fig.add_trace(go.Scatter3d(
+        x=[obj_loc_flat[0]], y=[obj_loc_flat[1]], z=[obj_loc_flat[2]],
+        mode="markers",
+        marker=dict(size=8, color="red"),
+        name="Object Location",
+        showlegend=True
+    ))
+
+    # Visualize raw RRT positions (the actual selected path)
+    if len(positions) > 1:
+        fig.add_trace(go.Scatter3d(
+            x=positions[:,0], y=positions[:,1], z=positions[:,2],
+            mode="lines+markers",
+            line=dict(color="orange", width=4),
+            marker=dict(size=4, color="orange"),
+            name="RRT Path",
+            showlegend=True
+        ))
+
+    # Visualize smoothed trajectory with cylinders
+    cylinders = []
+    if len(smooth_trajectory) > 1:
+        # Extract position from smooth trajectory (columns 1:4)
+        smooth_positions = smooth_trajectory[:, 1:4]
+        
+        # Add trajectory line
+        fig.add_trace(go.Scatter3d(
+            x=smooth_positions[:,0], y=smooth_positions[:,1], z=smooth_positions[:,2],
+            mode="lines",
+            line=dict(color="cyan", width=6),
+            name="Smooth Trajectory",
+            showlegend=True
+        ))
+        
+        # Create cylinders for trajectory segments
+        for i in range(len(smooth_positions) - 1):
+            p0 = smooth_positions[i]
+            p1 = smooth_positions[i + 1]
+            cyl = create_cylinder_between_points(p0, p1, radius=0.02)
+            if cyl:
+                cyl.paint_uniform_color([0, 0.8, 1.0])  # Cyan color
+                cylinders.append(cyl)
+
+        # Add cylinder meshes to the figure
+        for cyl in cylinders:
+            verts = np.asarray(cyl.vertices)
+            tris = np.asarray(cyl.triangles)
+            cyl_color = 'rgb(0,204,255)'  # Cyan
+            fig.add_trace(go.Mesh3d(
+                x=verts[:,0], y=verts[:,1], z=verts[:,2],
+                i=tris[:,0], j=tris[:,1], k=tris[:,2],
+                opacity=0.8,
+                color=cyl_color,
+                showlegend=False
+            ))
+
+    # Add radius circles if provided
+    if radius_info:
+        r1 = radius_info.get('r1', 0.5)
+        r2 = radius_info.get('r2', 1.0)
+        
+        # Handle array inputs properly (like in visualize_rrt_trajectories)
+        obj_target_flat = np.array(obj_target).flatten()
+        obj_loc_flat = np.array(obj_loc).flatten()
+        
+        z_plane = obj_target_flat[2] if len(obj_target_flat) > 2 else obj_loc_flat[2]
+        
+        # Parameters for circle resolution
+        theta = np.linspace(0, 2*np.pi, 200)
+
+        # Inner radius (object exclusion) - centered on obj_loc
+        obj_loc_x, obj_loc_y = obj_loc_flat[0], obj_loc_flat[1]
+        x1 = obj_loc_x + r1 * np.cos(theta)
+        y1 = obj_loc_y + r1 * np.sin(theta)
+        z1 = np.full_like(theta, z_plane)
+
+        fig.add_trace(go.Scatter3d(
+            x=x1, y=y1, z=z1,
+            mode='lines',
+            line=dict(color='orange', width=4, dash='dash'),
+            name=f'Exclusion Radius (r={r1:.2f})',
+            showlegend=True
+        ))
+
+        # Outer radius (target area) - centered on obj_target  
+        obj_x, obj_y = obj_target_flat[0], obj_target_flat[1]
+        x2 = obj_x + r2 * np.cos(theta)
+        y2 = obj_y + r2 * np.sin(theta)
+        z2 = np.full_like(theta, z_plane)
+
+        fig.add_trace(go.Scatter3d(
+            x=x2, y=y2, z=z2,
+            mode='lines',
+            line=dict(color='green', width=4, dash='dash'),
+            name=f'Target Radius (r={r2:.2f})',
+            showlegend=True
+        ))
+
+    # Configure layout with sophisticated camera and bounding similar to generate_rrt_paths
+    # Get point cloud bounds
+    min_pt, max_pt = pts.min(axis=0), pts.max(axis=0)
+    center = (min_pt + max_pt) * 0.5
+    
+    # Set up custom bounds from config if provided, otherwise use point cloud bounds
+    if config:
+        minbound = [float(x) if x not in [None, 'None'] else None for x in config.get('minbound', [None, None, None])]
+        maxbound = [float(x) if x not in [None, 'None'] else None for x in config.get('maxbound', [None, None, None])]
+        bounds = np.array([
+            [minbound[i] if minbound[i] is not None else pts[:, i].min(),
+             maxbound[i] if maxbound[i] is not None else pts[:, i].max()]
+            for i in range(3)
+        ])
+        xmin, xmax = bounds[0]
+        ymin, ymax = bounds[1]
+        zmin, zmax = bounds[2]
+    else:
+        # Use point cloud bounds as fallback
+        xmin, xmax = pts[:, 0].min(), pts[:, 0].max()
+        ymin, ymax = pts[:, 1].min(), pts[:, 1].max() 
+        zmin, zmax = pts[:, 2].min(), pts[:, 2].max()
+    
+    dx = xmax - xmin
+    dy = ymax - ymin
+    dz = zmax - zmin
+    
+    # Set up sophisticated camera positioning like generate_rrt_paths
+    R = np.linalg.norm(pts - pts.mean(axis=0), axis=1).max() * 1.5
+    az, el = np.deg2rad(45), np.deg2rad(10)  # Azimuth and elevation angles
+    eye = dict(
+        x=R*np.cos(el)*np.cos(az),
+        y=R*np.cos(el)*np.sin(az),
+        z=R*np.sin(el)
+    )
+    
+    # Check if this is an "sv_" scene type for conditional layout
+    is_sv_scene = simulator and hasattr(simulator, 'gsplat') and simulator.gsplat.name.startswith("sv_")
+    
+    # Configure layout with manual aspect control and custom camera
+    if is_sv_scene:
+        # Layout for "sv_" scenes (with axis labels)
+        fig.update_layout(
+            scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+            scene=dict(
+                aspectmode="manual",
+                aspectratio=dict(x=dx, y=dy, z=dz),
+                xaxis=dict(
+                    title='x',
+                    range=[xmin, xmax], 
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                yaxis=dict(
+                    title='y',
+                    range=[ymax, ymin],  # Inverted like in generate_rrt_paths
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                zaxis=dict(
+                    title='z',
+                    range=[zmax, zmin],  # Inverted like in generate_rrt_paths
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+            ),
+            margin=dict(l=0, r=0, t=0, b=0),
+            width=1000, 
+            height=1000,
+            showlegend=True,  # Keep legend since it's useful for single trajectory
+            title="Single Trajectory Visualization"
+        )
+    else:
+        # Layout for other scenes (no axis labels)
+        fig.update_layout(
+            scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+            scene=dict(
+                aspectmode="manual",
+                aspectratio=dict(x=dx, y=dy, z=dz),
+                xaxis=dict(
+                    title='',
+                    range=[xmin, xmax], 
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                yaxis=dict(
+                    title='',
+                    range=[ymax, ymin],  # Inverted like in generate_rrt_paths
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                zaxis=dict(
+                    title='',
+                    range=[zmax, zmin],  # Inverted like in generate_rrt_paths
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+            ),
+            margin=dict(l=0, r=0, t=0, b=0),
+            width=1000, 
+            height=1000,
+            showlegend=True,  # Keep legend since it's useful for single trajectory
+            title="Single Trajectory Visualization"
+        )
+
+    return fig
+
+
+def visualize_multiple_trajectories(debug_info_list, pcd, obj_target, radius_info=None, config_filename=None, simulator=None):
+    """
+    Visualize multiple trajectories from a list of debug_info in 3D point cloud.
+    
+    Parameters:
+        debug_info_list (list): List of debug_info dicts, each containing trajectory data
+        pcd (o3d.geometry.PointCloud): The environment point cloud
+        obj_target (np.ndarray): Object position [x, y, z]
+        radius_info (dict, optional): Contains 'r1' and 'r2' for circles
+        config_filename (str, optional): Path to config file
+        simulator (object, optional): Simulator object to check scene type
+    
+    Returns:
+        go.Figure: Plotly figure with multiple trajectory visualizations
+    """
+    
+    def create_cylinder_between_points(p1, p2, radius=0.01, resolution=20):
+        """Create a cylinder mesh between two 3D points."""
+        direction = p2 - p1
+        length = np.linalg.norm(direction)
+        if length == 0: 
+            return None
+        direction /= length
+
+        # build unit‐height cylinder along Z
+        cyl = o3d.geometry.TriangleMesh.create_cylinder(radius, length, resolution, 4)
+        cyl.compute_vertex_normals()
+
+        # compute axis & angle between [0,0,1] and direction
+        z_axis = np.array([0,0,1.0])
+        axis = np.cross(z_axis, direction)
+        axis_len = np.linalg.norm(axis)
+        if axis_len < 1e-6:
+            # either parallel or anti‐parallel; if anti, rotate 180° around X
+            if np.dot(z_axis, direction) < 0:
+                R = o3d.geometry.get_rotation_matrix_from_axis_angle(np.pi * np.array([1,0,0]))
+            else:
+                R = np.eye(3)
+        else:
+            axis /= axis_len
+            angle = np.arccos(np.dot(z_axis, direction))
+            R = o3d.geometry.get_rotation_matrix_from_axis_angle(axis * angle)
+
+        cyl.rotate(R, center=(0,0,0))
+
+        # move to midpoint
+        midpoint = (p1 + p2) * 0.5
+        cyl.translate(midpoint)
+
+        return cyl
+
+    config = {}
+    # Check if the configuration file exists
+    if config_filename and os.path.exists(config_filename):
+        with open(config_filename, 'r') as file:
+            config = yaml.safe_load(file) or {}
+        print("Configuration loaded from config.yml")
+
+    # Get point cloud data
+    pts = np.asarray(pcd.points)
+    cols = np.clip(np.asarray(pcd.colors), 0, 1)
+    rgb = (cols * 255).astype(int)
+    rgb_strs = [f"rgb({r},{g},{b})" for r,g,b in rgb]
+
+    # Create the main figure with much larger dimensions
+    fig = go.Figure(layout=dict(width=3200, height=2400))
+
+    # Add point cloud
+    fig.add_trace(go.Scatter3d(
+        x=pts[:,0], y=pts[:,1], z=pts[:,2],
+        mode="markers",
+        marker=dict(size=2, color=rgb_strs),
+        name="Environment",
+        showlegend=False
+    ))
+
+    # Add object location marker (use first debug_info for obj_loc)
+    if debug_info_list:
+        obj_loc_flat = np.array(debug_info_list[0]["obj_loc"]).flatten()
+        fig.add_trace(go.Scatter3d(
+            x=[obj_loc_flat[0]], y=[obj_loc_flat[1]], z=[obj_loc_flat[2]],
+            mode="markers",
+            marker=dict(size=8, color="red"),
+            name="Object Location",
+            showlegend=True
+        ))
+
+    # Define colors for different trajectories
+    trajectory_colors = [
+        'orange', 'cyan', 'magenta', 'yellow', 'lime', 'pink', 
+        'purple', 'brown', 'gray', 'olive', 'navy', 'teal'
+    ]
+    
+    # Process each trajectory
+    for i, debug_info in enumerate(debug_info_list):
+        color_idx = i % len(trajectory_colors)
+        traj_color = trajectory_colors[color_idx]
+        traj_name = f"Trajectory {debug_info.get('trajectory_index', i)}"
+        
+        # Extract trajectory data
+        obj_loc = debug_info["obj_loc"]
+        positions = debug_info["positions"]  # Raw RRT positions
+        trajectory = debug_info["trajectory"]  # Parameterized trajectory
+        smooth_trajectory = debug_info["smooth_trajectory"]  # Smoothed trajectory
+        
+        # Visualize raw RRT positions (the actual selected path)
+        if len(positions) > 1:
+            fig.add_trace(go.Scatter3d(
+                x=positions[:,0], y=positions[:,1], z=positions[:,2],
+                mode="lines+markers",
+                line=dict(color=traj_color, width=3),
+                marker=dict(size=3, color=traj_color),
+                name=f"{traj_name} (RRT)",
+                showlegend=True,
+                legendgroup=f"traj_{i}",
+                visible=True if i < 5 else 'legendonly'  # Show first 5, hide rest in legend
+            ))
+
+        # Visualize smoothed trajectory
+        if len(smooth_trajectory) > 1:
+            # Extract position from smooth trajectory (columns 1:4)
+            smooth_positions = smooth_trajectory[:, 1:4]
+            
+            # Add trajectory line
+            fig.add_trace(go.Scatter3d(
+                x=smooth_positions[:,0], y=smooth_positions[:,1], z=smooth_positions[:,2],
+                mode="lines",
+                line=dict(color=traj_color, width=5, dash='dash'),
+                name=f"{traj_name} (Smooth)",
+                showlegend=True,
+                legendgroup=f"traj_{i}",
+                visible=True if i < 5 else 'legendonly'  # Show first 5, hide rest in legend
+            ))
+
+    # Add radius circles if provided
+    if radius_info:
+        r1 = radius_info.get('r1', 0.5)
+        r2 = radius_info.get('r2', 1.0)
+        
+        # Handle array inputs properly
+        obj_target_flat = np.array(obj_target).flatten()
+        
+        # Use obj_target for z_plane if no debug_info, otherwise use obj_loc
+        if debug_info_list:
+            obj_loc_flat = np.array(debug_info_list[0]["obj_loc"]).flatten()
+            z_plane = obj_target_flat[2] if len(obj_target_flat) > 2 else obj_loc_flat[2]
+            obj_loc_x, obj_loc_y = obj_loc_flat[0], obj_loc_flat[1]
+        else:
+            # When no debug_info, use obj_target for both exclusion and target radii
+            z_plane = obj_target_flat[2] if len(obj_target_flat) > 2 else 0
+            obj_loc_x, obj_loc_y = obj_target_flat[0], obj_target_flat[1]
+        
+        # Parameters for circle resolution
+        theta = np.linspace(0, 2*np.pi, 200)
+
+        # Inner radius (object exclusion) - centered on obj_loc (or obj_target if no debug_info)
+        x1 = obj_loc_x + r1 * np.cos(theta)
+        y1 = obj_loc_y + r1 * np.sin(theta)
+        z1 = np.full_like(theta, z_plane)
+
+        fig.add_trace(go.Scatter3d(
+            x=x1, y=y1, z=z1,
+            mode='lines',
+            line=dict(color='orange', width=4, dash='dash'),
+            name=f'Exclusion Radius (r={r1:.2f})',
+            showlegend=True
+        ))
+
+        # Outer radius (target area) - centered on obj_target  
+        obj_x, obj_y = obj_target_flat[0], obj_target_flat[1]
+        x2 = obj_x + r2 * np.cos(theta)
+        y2 = obj_y + r2 * np.sin(theta)
+        z2 = np.full_like(theta, z_plane)
+
+        fig.add_trace(go.Scatter3d(
+            x=x2, y=y2, z=z2,
+            mode='lines',
+            line=dict(color='green', width=4, dash='dash'),
+            name=f'Target Radius (r={r2:.2f})',
+            showlegend=True
+        ))
+
+    # Configure layout with larger dimensions and better margins
+    min_pt, max_pt = pts.min(axis=0), pts.max(axis=0)
+    center = (min_pt + max_pt) * 0.5
+    
+    # Set up custom bounds from config if provided, otherwise use point cloud bounds
+    if config:
+        minbound = [float(x) if x not in [None, 'None'] else None for x in config.get('minbound', [None, None, None])]
+        maxbound = [float(x) if x not in [None, 'None'] else None for x in config.get('maxbound', [None, None, None])]
+        bounds = np.array([
+            [minbound[i] if minbound[i] is not None else pts[:, i].min(),
+             maxbound[i] if maxbound[i] is not None else pts[:, i].max()]
+            for i in range(3)
+        ])
+        xmin, xmax = bounds[0]
+        ymin, ymax = bounds[1]
+        zmin, zmax = bounds[2]
+    else:
+        # Use point cloud bounds as fallback
+        xmin, xmax = pts[:, 0].min(), pts[:, 0].max()
+        ymin, ymax = pts[:, 1].min(), pts[:, 1].max()
+        zmin, zmax = pts[:, 2].min(), pts[:, 2].max()
+    
+    dx = xmax - xmin
+    dy = ymax - ymin
+    dz = zmax - zmin
+    
+    # Set up sophisticated camera positioning
+    R = np.linalg.norm(pts - pts.mean(axis=0), axis=1).max() * 1.5
+    az, el = np.deg2rad(45), np.deg2rad(10)  # Azimuth and elevation angles
+    eye = dict(
+        x=R*np.cos(el)*np.cos(az),
+        y=R*np.cos(el)*np.sin(az),
+        z=R*np.sin(el)
+    )
+    
+    # Check if this is an "sv_" scene type for conditional layout
+    is_sv_scene = simulator and hasattr(simulator, 'gsplat') and simulator.gsplat.name.startswith("sv_")
+    
+    # Configure layout with manual aspect control and custom camera
+    if is_sv_scene:
+        # Layout for "sv_" scenes (with axis labels)
+        fig.update_layout(
+            scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+            scene=dict(
+                aspectmode="manual",
+                aspectratio=dict(x=dx, y=dy, z=dz),
+                domain=dict(x=[0.1, 0.9], y=[0.1, 0.9]),  # Use less of the canvas - centered with padding
+                xaxis=dict(
+                    title='x',
+                    range=[xmin, xmax], 
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                yaxis=dict(
+                    title='y',
+                    range=[ymax, ymin],
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                zaxis=dict(
+                    title='z',
+                    range=[zmax, zmin],
+                    autorange=False,
+                    showticklabels=True,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+            ),
+            margin=dict(l=50, r=50, t=80, b=50),  # Larger margins to give more space around plot
+            width=3200,   # Much larger width
+            height=2400,  # Much larger height
+            showlegend=True,
+            title=f"Multiple Trajectories Visualization ({len(debug_info_list)} trajectories)"
+        )
+    else:
+        # Layout for other scenes (no axis labels)
+        fig.update_layout(
+            scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+            scene=dict(
+                aspectmode="manual",
+                aspectratio=dict(x=dx, y=dy, z=dz),
+                domain=dict(x=[0.1, 0.9], y=[0.1, 0.9]),  # Use less of the canvas - centered with padding
+                xaxis=dict(
+                    title='',
+                    range=[xmin, xmax], 
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                yaxis=dict(
+                    title='',
+                    range=[ymax, ymin],
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+                zaxis=dict(
+                    title='',
+                    range=[zmax, zmin],
+                    autorange=False,
+                    showticklabels=False,
+                    showgrid=False,
+                    zeroline=False,
+                    showbackground=False,
+                ),
+            ),
+            margin=dict(l=50, r=50, t=80, b=50),  # Larger margins to give more space around plot
+            width=3200,   # Much larger width
+            height=2400,  # Much larger height
+            showlegend=True,
+            title=f"Multiple Trajectories Visualization ({len(debug_info_list)} trajectories)"
+        )
+
+    return fig
+
+
+# def visualize_multiple_trajectories(debug_info_list, pcd, obj_target, radius_info=None, config_filename=None, simulator=None):
+#     """
+#     Visualize multiple trajectories from a list of debug_info in 3D point cloud.
+    
+#     Parameters:
+#         debug_info_list (list): List of debug_info dicts, each containing trajectory data
+#         pcd (o3d.geometry.PointCloud): The environment point cloud
+#         obj_target (np.ndarray): Object position [x, y, z]
+#         radius_info (dict, optional): Contains 'r1' and 'r2' for circles
+#         config_filename (str, optional): Path to config file
+#         simulator (object, optional): Simulator object to check scene type
+    
+#     Returns:
+#         go.Figure: Plotly figure with multiple trajectory visualizations
+#     """
+    
+#     def create_cylinder_between_points(p1, p2, radius=0.01, resolution=20):
+#         """Create a cylinder mesh between two 3D points."""
+#         direction = p2 - p1
+#         length = np.linalg.norm(direction)
+#         if length == 0: 
+#             return None
+#         direction /= length
+
+#         # build unit‐height cylinder along Z
+#         cyl = o3d.geometry.TriangleMesh.create_cylinder(radius, length, resolution, 4)
+#         cyl.compute_vertex_normals()
+
+#         # compute axis & angle between [0,0,1] and direction
+#         z_axis = np.array([0,0,1.0])
+#         axis = np.cross(z_axis, direction)
+#         axis_len = np.linalg.norm(axis)
+#         if axis_len < 1e-6:
+#             # either parallel or anti‐parallel; if anti, rotate 180° around X
+#             if np.dot(z_axis, direction) < 0:
+#                 R = o3d.geometry.get_rotation_matrix_from_axis_angle(np.pi * np.array([1,0,0]))
+#             else:
+#                 R = np.eye(3)
+#         else:
+#             axis /= axis_len
+#             angle = np.arccos(np.dot(z_axis, direction))
+#             R = o3d.geometry.get_rotation_matrix_from_axis_angle(axis * angle)
+
+#         cyl.rotate(R, center=(0,0,0))
+
+#         # move to midpoint
+#         midpoint = (p1 + p2) * 0.5
+#         cyl.translate(midpoint)
+
+#         return cyl
+
+#     config = {}
+#     # Check if the configuration file exists
+#     if config_filename and os.path.exists(config_filename):
+#         with open(config_filename, 'r') as file:
+#             config = yaml.safe_load(file) or {}
+#         print("Configuration loaded from config.yml")
+
+#     # Get point cloud data
+#     pts = np.asarray(pcd.points)
+#     cols = np.clip(np.asarray(pcd.colors), 0, 1)
+#     rgb = (cols * 255).astype(int)
+#     rgb_strs = [f"rgb({r},{g},{b})" for r,g,b in rgb]
+
+#     # Create the main figure
+#     fig = go.Figure(layout=dict(width=1600, height=1000))
+    
+#     # Add point cloud
+#     fig.add_trace(go.Scatter3d(
+#         x=pts[:,0], y=pts[:,1], z=pts[:,2],
+#         mode="markers",
+#         marker=dict(size=2, color=rgb_strs),
+#         name="Environment",
+#         showlegend=False
+#     ))
+
+#     # Add object location marker (use first debug_info for obj_loc)
+#     if debug_info_list:
+#         obj_loc_flat = np.array(debug_info_list[0]["obj_loc"]).flatten()
+#         fig.add_trace(go.Scatter3d(
+#             x=[obj_loc_flat[0]], y=[obj_loc_flat[1]], z=[obj_loc_flat[2]],
+#             mode="markers",
+#             marker=dict(size=8, color="red"),
+#             name="Object Location",
+#             showlegend=True
+#         ))
+
+#     # Define colors for different trajectories
+#     trajectory_colors = [
+#         'orange', 'cyan', 'magenta', 'yellow', 'lime', 'pink', 
+#         'purple', 'brown', 'gray', 'olive', 'navy', 'teal'
+#     ]
+    
+#     # Process each trajectory
+#     for i, debug_info in enumerate(debug_info_list):
+#         color_idx = i % len(trajectory_colors)
+#         traj_color = trajectory_colors[color_idx]
+#         traj_name = f"Trajectory {debug_info.get('trajectory_index', i)}"
+        
+#         # Extract trajectory data
+#         obj_loc = debug_info["obj_loc"]
+#         positions = debug_info["positions"]  # Raw RRT positions
+#         trajectory = debug_info["trajectory"]  # Parameterized trajectory
+#         smooth_trajectory = debug_info["smooth_trajectory"]  # Smoothed trajectory
+        
+#         # Visualize raw RRT positions (the actual selected path)
+#         if len(positions) > 1:
+#             fig.add_trace(go.Scatter3d(
+#                 x=positions[:,0], y=positions[:,1], z=positions[:,2],
+#                 mode="lines+markers",
+#                 line=dict(color=traj_color, width=3),
+#                 marker=dict(size=3, color=traj_color),
+#                 name=f"{traj_name} (RRT)",
+#                 showlegend=True,
+#                 legendgroup=f"traj_{i}",
+#                 visible=True if i < 5 else 'legendonly'  # Show first 5, hide rest in legend
+#             ))
+
+#         # Visualize smoothed trajectory
+#         if len(smooth_trajectory) > 1:
+#             # Extract position from smooth trajectory (columns 1:4)
+#             smooth_positions = smooth_trajectory[:, 1:4]
+            
+#             # Add trajectory line
+#             fig.add_trace(go.Scatter3d(
+#                 x=smooth_positions[:,0], y=smooth_positions[:,1], z=smooth_positions[:,2],
+#                 mode="lines",
+#                 line=dict(color=traj_color, width=5, dash='dash'),
+#                 name=f"{traj_name} (Smooth)",
+#                 showlegend=True,
+#                 legendgroup=f"traj_{i}",
+#                 visible=True if i < 5 else 'legendonly'  # Show first 5, hide rest in legend
+#             ))
+
+#     # Add radius circles if provided (same as single trajectory version)
+#     if radius_info:
+#         r1 = radius_info.get('r1', 0.5)
+#         r2 = radius_info.get('r2', 1.0)
+        
+#         # Handle array inputs properly
+#         obj_target_flat = np.array(obj_target).flatten()
+#         obj_loc_flat = np.array(debug_info_list[0]["obj_loc"]).flatten()
+        
+#         z_plane = obj_target_flat[2] if len(obj_target_flat) > 2 else obj_loc_flat[2]
+        
+#         # Parameters for circle resolution
+#         theta = np.linspace(0, 2*np.pi, 200)
+
+#         # Inner radius (object exclusion) - centered on obj_loc
+#         obj_loc_x, obj_loc_y = obj_loc_flat[0], obj_loc_flat[1]
+#         x1 = obj_loc_x + r1 * np.cos(theta)
+#         y1 = obj_loc_y + r1 * np.sin(theta)
+#         z1 = np.full_like(theta, z_plane)
+
+#         fig.add_trace(go.Scatter3d(
+#             x=x1, y=y1, z=z1,
+#             mode='lines',
+#             line=dict(color='orange', width=4, dash='dash'),
+#             name=f'Exclusion Radius (r={r1:.2f})',
+#             showlegend=True
+#         ))
+
+#         # Outer radius (target area) - centered on obj_target  
+#         obj_x, obj_y = obj_target_flat[0], obj_target_flat[1]
+#         x2 = obj_x + r2 * np.cos(theta)
+#         y2 = obj_y + r2 * np.sin(theta)
+#         z2 = np.full_like(theta, z_plane)
+
+#         fig.add_trace(go.Scatter3d(
+#             x=x2, y=y2, z=z2,
+#             mode='lines',
+#             line=dict(color='green', width=4, dash='dash'),
+#             name=f'Target Radius (r={r2:.2f})',
+#             showlegend=True
+#         ))
+
+#     # Configure layout (similar to single trajectory)
+#     min_pt, max_pt = pts.min(axis=0), pts.max(axis=0)
+#     center = (min_pt + max_pt) * 0.5
+    
+#     # Set up custom bounds from config if provided, otherwise use point cloud bounds
+#     if config:
+#         minbound = [float(x) if x not in [None, 'None'] else None for x in config.get('minbound', [None, None, None])]
+#         maxbound = [float(x) if x not in [None, 'None'] else None for x in config.get('maxbound', [None, None, None])]
+#         bounds = np.array([
+#             [minbound[i] if minbound[i] is not None else pts[:, i].min(),
+#              maxbound[i] if maxbound[i] is not None else pts[:, i].max()]
+#             for i in range(3)
+#         ])
+#         xmin, xmax = bounds[0]
+#         ymin, ymax = bounds[1]
+#         zmin, zmax = bounds[2]
+#     else:
+#         # Use point cloud bounds as fallback
+#         xmin, xmax = pts[:, 0].min(), pts[:, 0].max()
+#         ymin, ymax = pts[:, 1].min(), pts[:, 1].max()
+#         zmin, zmax = pts[:, 2].min(), pts[:, 2].max()
+    
+#     dx = xmax - xmin
+#     dy = ymax - ymin
+#     dz = zmax - zmin
+    
+#     # Set up sophisticated camera positioning
+#     R = np.linalg.norm(pts - pts.mean(axis=0), axis=1).max() * 1.5
+#     az, el = np.deg2rad(45), np.deg2rad(10)  # Azimuth and elevation angles
+#     eye = dict(
+#         x=R*np.cos(el)*np.cos(az),
+#         y=R*np.cos(el)*np.sin(az),
+#         z=R*np.sin(el)
+#     )
+    
+#     # Check if this is an "sv_" scene type for conditional layout
+#     is_sv_scene = simulator and hasattr(simulator, 'gsplat') and simulator.gsplat.name.startswith("sv_")
+    
+#     # Configure layout with manual aspect control and custom camera
+#     if is_sv_scene:
+#         # Layout for "sv_" scenes (with axis labels)
+#         fig.update_layout(
+#             scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+#             scene=dict(
+#                 aspectmode="manual",
+#                 aspectratio=dict(x=dx, y=dy, z=dz),
+#                 xaxis=dict(
+#                     title='x',
+#                     range=[xmin, xmax], 
+#                     autorange=False,
+#                     showticklabels=True,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#                 yaxis=dict(
+#                     title='y',
+#                     range=[ymax, ymin],
+#                     autorange=False,
+#                     showticklabels=True,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#                 zaxis=dict(
+#                     title='z',
+#                     range=[zmax, zmin],
+#                     autorange=False,
+#                     showticklabels=True,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#             ),
+#             margin=dict(l=0, r=0, t=0, b=0),
+#             width=1600, 
+#             height=1000,
+#             showlegend=True,
+#             title=f"Multiple Trajectories Visualization ({len(debug_info_list)} trajectories)"
+#         )
+#     else:
+#         # Layout for other scenes (no axis labels)
+#         fig.update_layout(
+#             scene_camera=dict(eye=eye, up=dict(x=0, y=0, z=1)),
+#             scene=dict(
+#                 aspectmode="manual",
+#                 aspectratio=dict(x=dx, y=dy, z=dz),
+#                 xaxis=dict(
+#                     title='',
+#                     range=[xmin, xmax], 
+#                     autorange=False,
+#                     showticklabels=False,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#                 yaxis=dict(
+#                     title='',
+#                     range=[ymax, ymin],
+#                     autorange=False,
+#                     showticklabels=False,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#                 zaxis=dict(
+#                     title='',
+#                     range=[zmax, zmin],
+#                     autorange=False,
+#                     showticklabels=False,
+#                     showgrid=False,
+#                     zeroline=False,
+#                     showbackground=False,
+#                 ),
+#             ),
+#             margin=dict(l=0, r=0, t=0, b=0),
+#             width=1600, 
+#             height=1000,
+#             showlegend=True,
+#             title=f"Multiple Trajectories Visualization ({len(debug_info_list)} trajectories)"
+#         )
+
+#     return fig
