@@ -848,13 +848,13 @@ def visualize_rrt_trajectories(trajset,
                 showlegend=False
             ))
 
-            fig.add_trace(go.Scatter3d(
-                x=x2, y=y2, z=z2,
-                mode='lines',
-                line=dict(color='red', width=4),
-                name=f'Goal Exclusion Radius={r2}',
-                showlegend=False
-            ))
+            # fig.add_trace(go.Scatter3d(
+            #     x=x2, y=y2, z=z2,
+            #     mode='lines',
+            #     line=dict(color='red', width=4),
+            #     name=f'Goal Exclusion Radius={r2}',
+            #     showlegend=False
+            # ))
 
             for obstacle, ring_pts in zip(obstacles, rings):
                 # flatten in case it's a column‐vector
@@ -1515,7 +1515,7 @@ def visualize_multiple_trajectories(debug_info_list, pcd, obj_target, radius_inf
             fig.add_trace(go.Scatter3d(
                 x=smooth_positions[:,0], y=smooth_positions[:,1], z=smooth_positions[:,2],
                 mode="lines",
-                line=dict(color=traj_color, width=5, dash='dash'),
+                line=dict(color=traj_color, width=5, dash='dot'),
                 name=f"{traj_name} (Smooth)",
                 showlegend=True,
                 legendgroup=f"traj_{i}",
@@ -1619,7 +1619,7 @@ def visualize_multiple_trajectories(debug_info_list, pcd, obj_target, radius_inf
         fig.add_trace(go.Scatter3d(
             x=x1, y=y1, z=z1,
             mode='lines',
-            line=dict(color='orange', width=4, dash='dash'),
+            line=dict(color='green', width=4, dash='dash'),
             name=f'Exclusion Radius (r={r1:.2f})',
             showlegend=True
         ))
@@ -1630,13 +1630,13 @@ def visualize_multiple_trajectories(debug_info_list, pcd, obj_target, radius_inf
         y2 = obj_y + r2 * np.sin(theta)
         z2 = np.full_like(theta, z_plane)
 
-        fig.add_trace(go.Scatter3d(
-            x=x2, y=y2, z=z2,
-            mode='lines',
-            line=dict(color='green', width=4, dash='dash'),
-            name=f'Target Radius (r={r2:.2f})',
-            showlegend=True
-        ))
+        # fig.add_trace(go.Scatter3d(
+        #     x=x2, y=y2, z=z2,
+        #     mode='lines',
+        #     line=dict(color='green', width=4, dash='dash'),
+        #     name=f'Target Radius (r={r2:.2f})',
+        #     showlegend=True
+        # ))
 
     # Configure layout with larger dimensions and better margins
     min_pt, max_pt = pts.min(axis=0), pts.max(axis=0)

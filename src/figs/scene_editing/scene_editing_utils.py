@@ -28,7 +28,20 @@ from figs.visualize.plot_trajectories import *
 # # # # # Utils
 # # # # #
 
-def rescale_point_cloud(nerf,viz=False,cull=False,verbose=False):
+def rescale_point_cloud(nerf,viz=False,cull=False,verbose=False,save_html=None):
+    """
+    Rescale point cloud from NeRF scene data.
+    
+    Parameters:
+        nerf: NeRF object
+        viz: Whether to visualize the point cloud
+        cull: Whether to apply culling based on bounds
+        verbose: Whether to print debug information
+        save_html: Path to save the point cloud as HTML file (if provided)
+    
+    Returns:
+        tuple: (epcds, env_pcd_scaled.T, epcds_bounds, env_pcd, env_pcd_mask, env_attr)
+    """
     # viz = False
     # verbose = True
 
@@ -45,14 +58,14 @@ def rescale_point_cloud(nerf,viz=False,cull=False,verbose=False):
     dataparser_scale = nerf.pipeline.datamanager.train_dataset._dataparser_outputs.dataparser_scale
     dataparser_transform = nerf.pipeline.datamanager.train_dataset._dataparser_outputs.dataparser_transform
 
-    if viz:
-        epcds = o3d.geometry.PointCloud()
-        env_pcd_unscaled = np.asarray(filtered_pcd.points, dtype=np.float64).reshape(-1, 3)
-        print(f"(1) Unscaled Point Cloud:")
-        epcds.points = o3d.utility.Vector3dVector(env_pcd_unscaled)
-        env_pcd_colors = np.asarray(filtered_pcd.colors, dtype=np.float64).reshape(-1, 3)
-        epcds.colors = o3d.utility.Vector3dVector(env_pcd_colors)
-        # o3d.visualization.draw_plotly([epcds])
+    # if viz:
+    #     epcds = o3d.geometry.PointCloud()
+    #     env_pcd_unscaled = np.asarray(filtered_pcd.points, dtype=np.float64).reshape(-1, 3)
+    #     print(f"(1) Unscaled Point Cloud:")
+    #     epcds.points = o3d.utility.Vector3dVector(env_pcd_unscaled)
+    #     env_pcd_colors = np.asarray(filtered_pcd.colors, dtype=np.float64).reshape(-1, 3)
+    #     epcds.colors = o3d.utility.Vector3dVector(env_pcd_colors)
+    #     # o3d.visualization.draw_plotly([epcds])
 
     # Apply the inverse of the dataparser transform to the point cloud
     env_pcd_scaled = np.asarray(filtered_pcd.points).T / dataparser_scale
@@ -95,9 +108,39 @@ def rescale_point_cloud(nerf,viz=False,cull=False,verbose=False):
         print(f"Bounding Range: {bx}, {by}, {bz}")
         print(f"Minbound: {minbound}", f"Maxbound: {maxbound}")
 
-    if viz:
-        print(f"(2) Scaled Point Cloud:")
-        o3d.visualization.draw_plotly([epcds])
+    # if viz:
+    #     print(f"(2) Scaled Point Cloud:")
+    #     o3d.visualization.draw_plotly([epcds])
+
+    # Save to HTML if requested
+    if save_html:
+        print(f"Saving point cloud to HTML: {save_html}")
+        
+        # Use the exact same approach as visualize_multiple_trajectories
+        # Get point cloud data
+        pts = np.asarray(epcds.points)
+        cols = np.clip(np.asarray(epcds.colors), 0, 1)
+        rgb = (cols * 255).astype(int)
+        rgb_strs = [f"rgb({r},{g},{b})" for r,g,b in rgb]
+
+        # Create the main figure
+        fig = go.Figure(layout=dict(width=1200, height=800))
+
+        # Add point cloud with inverted Z axis for right-side-up display
+        fig.add_trace(go.Scatter3d(
+            x=pts[:,0], y=-pts[:,1], z=-pts[:,2],
+            mode="markers",
+            marker=dict(size=2, color=rgb_strs),
+            name="Environment",
+            showlegend=False
+        ))
+        
+        # Add title to the figure
+        fig.update_layout(title=f'Rescaled Point Cloud - {getattr(nerf, "name", "Unknown Scene")}')
+        
+        # Save the figure as HTML
+        fig.write_html(save_html)
+        print(f"Point cloud saved to: {save_html}")
 
     epcds_bounds = {"minbound": minbound, "maxbound": maxbound}
 
