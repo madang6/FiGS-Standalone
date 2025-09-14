@@ -302,6 +302,7 @@ def generate_rrt_paths(
 
     trajset = {}
     all_cylinder_lists = []
+    color_list = ["purple", "orange", "cyan"]
     for i, (target, pose, centroid) in enumerate(zip(objectives, obj_targets, semantic_centroid)):
         r1 = config.get('radii')[i][0]
         r2 = config.get('radii')[i][1]
@@ -372,9 +373,9 @@ def generate_rrt_paths(
             pts3d = np.hstack([pts2d, zcol])
             for i in range(len(pts3d)-1):
                 cyl = create_cylinder_between_points(pts3d[i], pts3d[i+1], radius=0.01)
-                if cyl:
-                    cyl.paint_uniform_color([0,0.5,1.0])
-                    cylinders.append(cyl)
+            if cyl:
+                cyl.paint_uniform_color([1.0, 0.5, 0.0])  # orange color
+                cylinders.append(cyl)
         all_cylinder_lists.append(cylinders)
 
         trajset[target] = paths
@@ -419,7 +420,7 @@ def generate_rrt_paths(
                 verts = np.asarray(cyl.vertices)
                 tris  = np.asarray(cyl.triangles)
                 # pick the uniform color you used in Open3D: [0, 0.5, 1.0] → rgb(0,128,255)
-                cyl_color = 'rgb(0,128,255)'
+                cyl_color = color_list[i] if i < len(color_list) else color_list[-1]
                 fig.add_trace(go.Mesh3d(
                     x=verts[:,0], y=verts[:,1], z=verts[:,2],
                     i=tris[:,0], j=tris[:,1], k=tris[:,2],
@@ -462,36 +463,36 @@ def generate_rrt_paths(
                 showlegend=False
             ))
 
-            if rings is not None and obstacles is not None:
-                for obstacle, ring_pts in zip(obstacles, rings):
-                    # flatten in case it's a column‐vector
-                    ctr = obstacle.flatten()
+            # if rings is not None and obstacles is not None:
+            #     for obstacle, ring_pts in zip(obstacles, rings):
+            #         # flatten in case it's a column‐vector
+            #         ctr = obstacle.flatten()
 
-                    # skip empty or bad entries
-                    if not isinstance(ring_pts, (list, np.ndarray)) or len(ring_pts) == 0:
-                        print(f"  → no ring points for centroid {ctr[:2]}; skipping")
-                        continue
+            #         # skip empty or bad entries
+            #         if not isinstance(ring_pts, (list, np.ndarray)) or len(ring_pts) == 0:
+            #             print(f"  → no ring points for centroid {ctr[:2]}; skipping")
+            #             continue
 
-                    # take the very first sample
-                    first_pt = np.array(ring_pts)[0]
+            #         # take the very first sample
+            #         first_pt = np.array(ring_pts)[0]
 
-                    # compute X–Y distance between that sample and the centroid
-                    radius = np.linalg.norm(first_pt[:2] - ctr[:2])
-                    theta  = np.linspace(0, 2*np.pi, 200)
+            #         # compute X–Y distance between that sample and the centroid
+            #         radius = np.linalg.norm(first_pt[:2] - ctr[:2])
+            #         theta  = np.linspace(0, 2*np.pi, 200)
 
-                    # build a perfect circle around the centroid
-                    x_ring = ctr[0] + radius * np.cos(theta)
-                    y_ring = ctr[1] + radius * np.sin(theta)
-                    z_ring = np.full_like(theta, ctr[2])   # use centroid's Z
+            #         # build a perfect circle around the centroid
+            #         x_ring = ctr[0] + radius * np.cos(theta)
+            #         y_ring = ctr[1] + radius * np.sin(theta)
+            #         z_ring = np.full_like(theta, ctr[2])   # use centroid's Z
 
-                    # add to your Plotly figure
-                    fig.add_trace(go.Scatter3d(
-                        x=x_ring, y=y_ring, z=z_ring,
-                        mode='lines',
-                        line=dict(color='green', width=4),
-                        name=f'Ring Radius={radius:.2f}',
-                        showlegend=False
-                    ))
+            #         # add to your Plotly figure
+            #         fig.add_trace(go.Scatter3d(
+            #             x=x_ring, y=y_ring, z=z_ring,
+            #             mode='lines',
+            #             line=dict(color='green', width=4),
+            #             name=f'Ring Radius={radius:.2f}',
+            #             showlegend=False
+            #         ))
             
         # # once you have your point cloud `pts` (N×3 array):
         min_pt, max_pt = pts.min(axis=0), pts.max(axis=0)
