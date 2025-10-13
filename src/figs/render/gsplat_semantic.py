@@ -216,8 +216,11 @@ class GSplat():
         )
 
         image_d = outputs.get("depth", None)
-        depth_image = np.squeeze(image_d).cpu().numpy()
-        depth_normalized = cv2.normalize(depth_image,None,0,255,cv2.NORM_MINMAX)
+        # Convert normalized depth to true metric depth
+        depth_image = np.squeeze(image_d).cpu().numpy() * 1.0/self.dataparser_scale
+        
+        # Create colored visualization of depth
+        depth_normalized = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX)
         depth_normalized = depth_normalized.astype(np.uint8)
         depth_colored = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
         depth_colored_tensor = torch.from_numpy(depth_colored).float().cuda() / 255.0
@@ -229,7 +232,7 @@ class GSplat():
         image_rgb = (255 * image_rgb).astype(np.uint8)
 
         if query is None:
-            return {"rgb":image_rgb, "depth": image_depth}
+            return {"rgb":image_rgb, "depth": image_depth, "depth_raw": depth_image}
         elif query == "null":
             sem = outputs.get(self.perception_mode, outputs.get("similarity", outputs["rgb"]))
         else:
@@ -242,8 +245,9 @@ class GSplat():
         return {
             "rgb": image_rgb,
             "semantic": image_sem,
-            "depth": image_depth
-        }
+            "depth": image_depth,
+            "depth_raw": depth_image,
+            }    
     
     def render_rgb_old(self, camera:Cameras,T_c2w:np.ndarray) -> np.ndarray:
         """

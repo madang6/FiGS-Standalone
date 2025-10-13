@@ -108,6 +108,7 @@ def build_loiter_fragment(
 def generate_spin_keyframes(
     name: str,
     Nco: int,
+    Nspin: int,
     xyz: np.ndarray,
     theta0: float,
     theta1: float,
@@ -125,10 +126,10 @@ def generate_spin_keyframes(
     direction = np.sign(dθ) if dθ != 0 else 1.0
     abs_dθ    = abs(dθ)
 
-    # 2) total angular distance
-    total_ang = abs_dθ + 2*np.pi + np.pi/4
+    # 2) total angular distance: initial 360° + shortest path + another 360° + 45°
+    total_ang = Nspin*2*np.pi + abs_dθ + np.pi/4
 
-    rate = (abs_dθ + 2*np.pi + np.pi/4) / time  # angular velocity
+    rate = total_ang / time  # angular velocity
 
     def make_fo(angle: float, 
                 #rate: float, 

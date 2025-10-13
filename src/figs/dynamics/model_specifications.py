@@ -58,11 +58,27 @@ def generate_specifications(
     lf,lb = drn_prms["arm_front"],drn_prms["arm_back"]
     fn,tG = drn_prms["force_normalized"],drn_prms["torque_gain"]
     n_rtr = drn_prms["number_of_rotors"]
-    T_c2b = drn_prms["camera_to_body_transform"]
-    camera = drn_prms["camera"]
 
     # Initialize the dictionary
     quad = {}
+    
+    # Process all camera-related parameters
+    for key in drn_prms:
+        if key.startswith("camera") and not key.endswith("_transform"):
+            # Add camera configuration
+            quad[key] = drn_prms[key]
+            # Add corresponding transform
+            if key == "camera":
+                transform_key = "camera_to_body_transform"
+                transform_quad_key = "T_c2b"
+            else:
+                # Extract number from camera_X
+                cam_num = key.replace("camera_", "")
+                transform_key = f"camera_{cam_num}_to_body_transform"
+                transform_quad_key = f"T_c2b_{cam_num}"
+            
+            transform = drn_prms.get(transform_key, np.eye(4))  # Default to identity if not specified
+            quad[transform_quad_key] = np.array(transform)
     
     # Variable Quadcopter Constants ==========================================
 
@@ -75,8 +91,6 @@ def generate_specifications(
     # Model Constants
     quad["nx"],quad["nu"] = nx,nu
     quad["n_rtr"] = n_rtr
-    quad["T_c2b"] = np.array(T_c2b)
-    quad["camera"] = camera
 
     # Derive Quadcopter Constants
     fMw = fn*np.array([
