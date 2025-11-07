@@ -20,6 +20,7 @@ from figs.render.gsplat_semantic import GSplat
 # from gemsplat.gemsplat.clip import model
 from sousvide.flight import vision_preprocess_alternate as vp
 import sousvide.flight.vision_preprocess_groundedsam as vpg
+from sousvide.flight.vision_processor_base import VisionProcessorBase
 
 
 class Simulator:
@@ -203,7 +204,7 @@ class Simulator:
     def simulate(self,policy:Type[BaseController],
                  t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                  query:str|None=None,
-                 clipseg:bool=False,
+                 vision_processor:Union[None,VisionProcessorBase]=None,
                  validation:bool=False,
                  verbose:bool=False
                  ) -> Tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
@@ -288,13 +289,13 @@ class Simulator:
                 Tb2w = th.xv_to_T(xcr)
                 T_c2w = Tb2w@T_c2b
 
-                if clipseg is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None: 
+                if vision_processor is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None:
                     image_dict = self.gsplat.render_rgb(camera,T_c2w)
                     # img_cr = icr["semantic"]
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
                     start = time.time()
-                    icr, _ = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                    icr, _ = vision_processor.process(image=icr_rgb, prompt=query)
                     end = time.time()
                     if verbose:
                         times.append(end-start)
@@ -305,7 +306,7 @@ class Simulator:
                     icr_depth = image_dict["depth"]
 
                     if validation:
-                        icr_val, _ = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                        icr_val, _ = vision_processor.process(image=icr_rgb, prompt=query)
                 else:
                     image_dict = self.gsplat.render_rgb(camera,T_c2w)
                     icr = image_dict["rgb"]
@@ -393,7 +394,7 @@ class Simulator:
                             t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                             tXUi:np.ndarray|None=None,
                             query:str|None=None,
-                            clipseg:bool=False,
+                            vision_processor:Union[None,VisionProcessorBase]=None,
                             loiter_spin:bool=False,
                             check_end:bool=True,
                             validation:bool=False,
@@ -503,13 +504,13 @@ class Simulator:
                     Tb2w = th.xv_to_T(xcr)
                     T_c2w = Tb2w@T_c2b
 
-                    if clipseg is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None: 
+                    if vision_processor is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None:
                         image_dict = self.gsplat.render_rgb(camera,T_c2w)
                         # img_cr = icr["semantic"]
                         icr_rgb = image_dict["rgb"]
                         icr_depth = image_dict["depth"]
                         start = time.time()
-                        icr, scaled = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                        icr, scaled = vision_processor.process(image=icr_rgb, prompt=query)
                         end = time.time()
                         if verbose:
                             times.append(end-start)
@@ -520,7 +521,7 @@ class Simulator:
                         icr_depth = image_dict["depth"]
 
                         if validation:
-                            icr_val, scaled = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                            icr_val, scaled = vision_processor.process(image=icr_rgb, prompt=query)
                     else:
                         image_dict = self.gsplat.render_rgb(camera,T_c2w)
                         icr = image_dict["rgb"]
@@ -704,8 +705,8 @@ class Simulator:
                         # If policy switched, use the new camera and process image
                         image_dict_b = self.gsplat.render_rgb(camera_1, T_c2w)
                         icr_rgb_b = image_dict_b["rgb"]
-                        # Process image with clipseg for semantic information
-                        icr_resized, _ = clipseg.clipseg_hf_inference(image=icr_rgb_b, prompt=query)
+                        # Process image with vision processor for semantic information
+                        icr_resized, _ = vision_processor.process(image=icr_rgb_b, prompt=query)
                         # Generate control command using the semantic image
                         ucm, zcr, adv, tsol = policy.control(tcr, xsn, ucm, obj, icr_resized, zcr)
                         # log("Using switched policy with semantic image")
@@ -786,7 +787,7 @@ class Simulator:
                             t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                             tXUi:np.ndarray|None=None,
                             query:str|None=None,
-                            clipseg:bool=False,
+                            vision_processor:Union[None,VisionProcessorBase]=None,
                             loiter_spin:bool=False,
                             check_end:bool=True,
                             validation:bool=False,
@@ -896,13 +897,13 @@ class Simulator:
                     Tb2w = th.xv_to_T(xcr)
                     T_c2w = Tb2w@T_c2b
 
-                    if clipseg is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None: 
+                    if vision_processor is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None:
                         image_dict = self.gsplat.render_rgb(camera,T_c2w)
                         # img_cr = icr["semantic"]
                         icr_rgb = image_dict["rgb"]
                         icr_depth = image_dict["depth"]
                         start = time.time()
-                        icr, scaled = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                        icr, scaled = vision_processor.process(image=icr_rgb, prompt=query)
                         end = time.time()
                         if verbose:
                             times.append(end-start)
@@ -913,7 +914,7 @@ class Simulator:
                         icr_depth = image_dict["depth"]
 
                         if validation:
-                            icr_val, scaled = clipseg.clipseg_hf_inference(image=icr_rgb, prompt=query)
+                            icr_val, scaled = vision_processor.process(image=icr_rgb, prompt=query)
                     else:
                         image_dict = self.gsplat.render_rgb(camera,T_c2w)
                         icr = image_dict["rgb"]
@@ -1077,8 +1078,8 @@ class Simulator:
                         # If policy switched, use the new camera and process image
                         image_dict_b = self.gsplat.render_rgb(camera_1, T_c2w)
                         icr_rgb_b = image_dict_b["rgb"]
-                        # Process image with clipseg for semantic information
-                        icr_resized, _ = clipseg.clipseg_hf_inference(image=icr_rgb_b, prompt=query)
+                        # Process image with vision processor for semantic information
+                        icr_resized, _ = vision_processor.process(image=icr_rgb_b, prompt=query)
                         # Generate control command using the semantic image
                         ucm, zcr, adv, tsol = policy.control(tcr, xsn, ucm, obj, icr_resized, zcr)
                         # log("Using switched policy with semantic image")
