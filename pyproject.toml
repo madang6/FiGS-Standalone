@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "figs"
 version = "0.1.0"
 description = "Flying in Gaussian Splats"
-authors = [{ name = "JunEn Low", email = "lowjunen@gmail.com.com" }]
+authors = [{ name = "JunEn Low", email = "lowjunen@gmail.com" }, { name = "Maximilian Adang", email = "maximilian.adang@gmail.com" }]
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
