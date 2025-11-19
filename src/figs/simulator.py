@@ -18,9 +18,9 @@ from figs.dynamics.model_specifications import generate_specifications
 from figs.render.gsplat_semantic import GSplat
 
 # from gemsplat.gemsplat.clip import model
-from sousvide.flight import vision_preprocess_alternate as vp
-import sousvide.flight.vision_preprocess_groundedsam as vpg
-from sousvide.flight.vision_processor_base import VisionProcessorBase
+# from sousvide.flight import vision_preprocess_alternate as vp
+# import sousvide.flight.vision_preprocess_groundedsam as vpg
+# from sousvide.flight.vision_processor_base import VisionProcessorBase
 
 
 class Simulator:
@@ -204,7 +204,7 @@ class Simulator:
     def simulate(self,policy:Type[BaseController],
                  t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                  query:str|None=None,
-                 vision_processor:Union[None,VisionProcessorBase]=None,
+                 vision_processor:Union[None,"VisionProcessorBase"]=None,
                  validation:bool=False,
                  verbose:bool=False
                  ) -> Tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
@@ -394,7 +394,7 @@ class Simulator:
                             t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                             tXUi:np.ndarray|None=None,
                             query:str|None=None,
-                            vision_processor:Union[None,VisionProcessorBase]=None,
+                            vision_processor:Union[None,"VisionProcessorBase"]=None,
                             loiter_spin:bool=False,
                             check_end:bool=True,
                             validation:bool=False,
@@ -787,7 +787,7 @@ class Simulator:
                             t0:float,tf:int,x0:np.ndarray,obj:Union[None,np.ndarray]|None=None,
                             tXUi:np.ndarray|None=None,
                             query:str|None=None,
-                            vision_processor:Union[None,VisionProcessorBase]=None,
+                            vision_processor:Union[None,"VisionProcessorBase"]=None,
                             loiter_spin:bool=False,
                             check_end:bool=True,
                             validation:bool=False,

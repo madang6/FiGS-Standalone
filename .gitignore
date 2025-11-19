@@ -7,3 +7,18 @@
 **/acados_sim.json
 **/rollout_data/
 **/test_data/
+
+# Ignore everything untracked in the current directory
+*
+
+# But track these directories
+!.gitignore
+!.gitkeep
+!/3dgs/
+!/3dgs/.gitkeep
+!/configs/
+!/configs/.gitkeep
+
+# Ignore conda environment file
+condaenv.r3abnox3.requirements.txt
+
