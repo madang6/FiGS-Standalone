@@ -7,3 +7,16 @@
 **/acados_sim.json
 **/rollout_data/
 **/test_data/
+
+
+# Ignore contents of 3dgs/ and notebooks/
+3dgs/**
+notebooks/**
+
+# But track these directories
+!.gitignore
+!.gitkeep
+!/3dgs/
+!/3dgs/.gitkeep
+!/configs/
+!/configs/.gitkeep
