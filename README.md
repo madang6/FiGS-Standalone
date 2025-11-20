@@ -18,7 +18,7 @@ git submodule update --recursive --init
 2) Install acados
 ```bash
 # Navigate to acados folder
-cd <repository-path>/FiGS-Examples/FiGS/acados/
+cd acados/
 
 # Compile
 mkdir -p build
