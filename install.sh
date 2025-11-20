@@ -120,9 +120,9 @@ echo "=== Installing FiGS pip dependencies ==="
 pip install rich imageio[ffmpeg]
 
 # Install editable packages if they exist
-if [ -d "../acados/interfaces/acados_template" ]; then
+if [ -d "./acados/interfaces/acados_template" ]; then
     echo "=== Installing acados_template ==="
-    pip install -e ../acados/interfaces/acados_template
+    pip install -e ./acados/interfaces/acados_template
 fi
 
 if [ -d "./Hierarchical-Localization" ]; then
