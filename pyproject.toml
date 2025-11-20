@@ -22,10 +22,7 @@ dependencies = [
     "ipympl",
     "matplotlib",
     "cython",
-    "torch",
-    "torchvision",
-    "nerfstudio",
-]
+    ]
 
 [tool.setuptools.packages.find]
 where = ["src"]

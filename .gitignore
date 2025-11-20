@@ -8,7 +8,6 @@
 **/rollout_data/
 **/test_data/
 
-
 # Ignore contents of 3dgs/ and notebooks/
 3dgs/**
 notebooks/**
@@ -20,3 +19,6 @@ notebooks/**
 !/3dgs/.gitkeep
 !/configs/
 !/configs/.gitkeep
+
+# Ignore conda environment file
+condaenv.r3abnox3.requirements.txt

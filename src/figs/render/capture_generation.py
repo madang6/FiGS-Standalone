@@ -3,10 +3,16 @@
 from pathlib import Path
 import json
 from typing import List, Tuple, Dict, Union
+import time
+import shutil
 
 from nerfstudio.process_data.images_to_nerfstudio_dataset import (
     ImagesToNerfstudioDataset,
 )
+
+from rich.console import Console
+from rich.text import Text
+from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 
 import figs.utilities.capture_helper as ch
 import cv2
@@ -14,15 +20,103 @@ import numpy as np
 import open3d as o3d
 import subprocess
 
-def generate_gsplat(scene_file_name:str,capture_cfg_name:str='default',
-                    gsplats_path:Path=None,config_path:Path=None) -> None:
-    
-    # Initialize base paths
+# Initialize console for rich output management
+console = Console()
+
+def _resolve_repo_root() -> Path:
+    """
+    Resolve the absolute path to the FiGS-Standalone repository root.
+    This ensures outputs always go to the correct location regardless of where
+    the function is called from.
+    """
+    # Current file is at: src/figs/render/capture_generation.py
+    # Go up 4 levels to reach the repo root
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    return repo_root
+
+def _stage_complete(stage_path: Path) -> bool:
+    """
+    Check if a processing stage has already been completed by verifying
+    if key output files exist.
+
+    Args:
+        stage_path: The directory containing stage outputs
+
+    Returns:
+        True if stage appears to be complete, False otherwise
+    """
+    if not stage_path.exists():
+        return False
+
+    # Check if directory has any relevant files
+    if isinstance(stage_path, Path) and stage_path.is_dir():
+        files = list(stage_path.glob("*"))
+        return len(files) > 0
+
+    return False
+
+def _print_stage(stage_name: str, status: str = "STARTED", elapsed_time: float = None) -> None:
+    """
+    Print a formatted stage status message using rich formatting.
+
+    Args:
+        stage_name: Name of the processing stage
+        status: Status of the stage (STARTED, IN PROGRESS, COMPLETED, SKIPPED, FAILED)
+        elapsed_time: Optional elapsed time in seconds for the stage
+    """
+    # Define status colors
+    status_colors = {
+        "STARTED": "yellow",
+        "IN PROGRESS": "cyan",
+        "COMPLETED": "green",
+        "SKIPPED": "blue",
+        "FAILED": "red"
+    }
+
+    color = status_colors.get(status, "white")
+
+    # Build the status text
+    stage_text = Text(f"▶ {stage_name}", style="bold cyan")
+    status_text = Text(f" {status}", style=f"bold {color}")
+
+    # Add timing information if provided
+    if elapsed_time is not None:
+        timing_text = Text(f" ({elapsed_time:.1f}s)", style="dim white")
+        console.print(stage_text + status_text + timing_text)
+    else:
+        console.print(stage_text + status_text)
+
+def generate_gsplat(scene_file_name: str,
+                    capture_cfg_name: str = 'default',
+                    gsplats_path: Path = None,
+                    config_path: Path = None,
+                    force_recompute: bool = False) -> None:
+    """
+    Generate 3D Gaussian Splats from a video with checkpointing support.
+
+    Args:
+        scene_file_name: Name of the scene to process
+        capture_cfg_name: Name of the camera capture configuration
+        gsplats_path: Path to the 3dgs directory (defaults to repo_root/3dgs)
+        config_path: Path to the configs directory (defaults to repo_root/configs)
+        force_recompute: If True, recompute all stages. If False, skip completed stages.
+    """
+    # Resolve repository root to ensure outputs always go to the correct location
+    repo_root = _resolve_repo_root()
+
+    # Initialize base paths with absolute paths
+    # Default to the repository root
     if gsplats_path is None:
-        gsplats_path = Path(__file__).parent.parent.parent.parent.parent/'gsplats'
+        gsplats_path = (repo_root / '3dgs').resolve()
 
     if config_path is None:
-        config_path = Path(__file__).parent.parent.parent.parent.parent/'configs'
+        config_path = (repo_root / 'configs').resolve()
+
+    # Ensure gsplats_path is in the repo root (prevent creating /3dgs in /src)
+    gsplats_path = gsplats_path.resolve()
+    if not str(gsplats_path).startswith(str(repo_root)):
+        console.print(f"[yellow]Warning: gsplats_path {gsplats_path} is outside repo root. Using repo root instead.[/yellow]")
+        gsplats_path = repo_root / '3dgs'
 
     capture_cfg_path = config_path/'capture'
     capture_path = gsplats_path/'capture'
@@ -58,6 +152,7 @@ def generate_gsplat(scene_file_name:str,capture_cfg_name:str='default',
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Load the capture config
+    _print_stage("Loading Configuration", "STARTED")
     capture_config_file = capture_cfg_path/f"{capture_cfg_name}.json"
     with open(capture_config_file, "r") as file:
         capture_configs = json.load(file)
@@ -65,21 +160,45 @@ def generate_gsplat(scene_file_name:str,capture_cfg_name:str='default',
     camera_config = capture_configs["camera"]
     extractor_config = capture_configs["extractor"]
     embedding_config = capture_configs["mode"]
+    _print_stage("Loading Configuration", "COMPLETED")
 
-    # Extract the frame data
-    extract_frames(video_path,images_path,extractor_config)
+    # Extract the frame data (with checkpointing)
+    if _stage_complete(images_path) and not force_recompute:
+        frame_count = len(list(images_path.glob("*.png")))
+        _print_stage("Extracting Frames", "SKIPPED", None)
+        console.print(f"[blue]  Found {frame_count} existing frames, skipping extraction[/blue]")
+    else:
+        _print_stage("Extracting Frames", "IN PROGRESS")
+        frame_start = time.time()
+        # Clear existing frames if force_recompute
+        if force_recompute and images_path.exists():
+            shutil.rmtree(images_path)
+        extract_frames(video_path, images_path, extractor_config)
+        frame_elapsed = time.time() - frame_start
+        _print_stage("Extracting Frames", "COMPLETED", frame_elapsed)
     
-    # ns_process data step
-    ns_obj = ImagesToNerfstudioDataset(
-        data=images_path, output_dir=sfm_path,
-        camera_type="perspective", matching_method="exhaustive",sfm_tool="hloc",gpu=True
-    )
-    ns_obj.main()
+    # ns_process data step (with checkpointing)
+    if sfm_tfm_path.exists() and not force_recompute:
+        _print_stage("Structure from Motion", "SKIPPED", None)
+        console.print(f"[blue]  Found existing SfM results, skipping SfM processing[/blue]")
+    else:
+        _print_stage("Structure from Motion", "IN PROGRESS")
+        sfm_start = time.time()
+        # Clear existing SfM results if force_recompute
+        if force_recompute and sfm_path.exists():
+            shutil.rmtree(sfm_path)
+        ns_obj = ImagesToNerfstudioDataset(
+            data=images_path, output_dir=sfm_path,
+            camera_type="perspective", matching_method="exhaustive", sfm_tool="hloc", gpu=True
+        )
+        ns_obj.main()
+        sfm_elapsed = time.time() - sfm_start
+        _print_stage("Structure from Motion", "COMPLETED", sfm_elapsed)
 
     # Load the resulting transforms.json and sparse_points.ply
     with open(sfm_tfm_path, "r") as f:
         tfm_data = json.load(f)
-    
+
     sparse_pcloud = o3d.io.read_point_cloud(sfm_spc_path.as_posix())
     
     # Check if frame count matches
@@ -109,9 +228,35 @@ def generate_gsplat(scene_file_name:str,capture_cfg_name:str='default',
             "distortion_coefficients": [k1,k2,p1,p2]
         }
         
-    # Compute the transform using aruco markers
-    Psfm,Parc = extract_positions(sfm_path,extractor_config,camera_config)
-    cs,Rs,ts = ch.compute_ransac_transform(Psfm,Parc)
+    # Compute the transform using aruco markers (with checkpointing)
+    # Check if transforms have already been computed
+    transforms_computed = tfm_path.exists() and (tfm_path.stat().st_size > 1000)  # Check file is substantial
+
+    if transforms_computed and not force_recompute:
+        _print_stage("Computing Transforms", "SKIPPED", None)
+        console.print(f"[blue]  Found existing transform results, skipping transform computation[/blue]")
+        # Still need to load the computed transforms for later use
+        with open(tfm_path, "r") as f:
+            tfm_data_updated = json.load(f)
+        # Extract scale, rotation, translation from saved data if available
+        if "sfm_to_mocap_T" in tfm_data_updated and len(tfm_data_updated["sfm_to_mocap_T"]) > 0:
+            T_data = np.array(tfm_data_updated["sfm_to_mocap_T"][0]["sfm_to_mocap_T"])
+            cs, Rs, ts = 1.0, T_data[:3, :3], T_data[:3, 3]
+        else:
+            # Fallback: recompute if not found
+            _print_stage("Computing Transforms", "IN PROGRESS")
+            transform_start = time.time()
+            Psfm, Parc = extract_positions(sfm_path, extractor_config, camera_config)
+            cs, Rs, ts = ch.compute_ransac_transform(Psfm, Parc)
+            transform_elapsed = time.time() - transform_start
+            _print_stage("Computing Transforms", "COMPLETED", transform_elapsed)
+    else:
+        _print_stage("Computing Transforms", "IN PROGRESS")
+        transform_start = time.time()
+        Psfm, Parc = extract_positions(sfm_path, extractor_config, camera_config)
+        cs, Rs, ts = ch.compute_ransac_transform(Psfm, Parc)
+        transform_elapsed = time.time() - transform_start
+        _print_stage("Computing Transforms", "COMPLETED", transform_elapsed)
 
     if embedding_config == "semantic":
         # sfm_to_world_T = np.eye(4)
@@ -273,22 +418,33 @@ def generate_gsplat(scene_file_name:str,capture_cfg_name:str='default',
             "--auto-scale-poses", "False"
         ]
 
-    # Run the command
-    result = subprocess.run(command, cwd=workspace_path.as_posix(), capture_output=True, text=True)
+    # Run the command (with checkpointing)
+    # Check if training output already exists by searching for nerfstudio_models folder
+    nerfstudio_models_paths = list(output_path.glob("**/nerfstudio_models"))
+    training_output_exists = len(nerfstudio_models_paths) > 0
 
-    # Check the result
-    if result.returncode == 0:
-        print("Command succeeded.")
-        print(result.stdout)  # Output of the command
+    if training_output_exists and not force_recompute:
+        _print_stage("Training 3D Gaussian Splats", "SKIPPED", None)
+        console.print(f"[blue]  Found existing training outputs, skipping training[/blue]")
     else:
-        print("Command failed.")
-        print(result.stderr)  # Error output
+        _print_stage("Training 3D Gaussian Splats", "IN PROGRESS")
+        training_start = time.time()
+        result = subprocess.run(command, cwd=workspace_path.as_posix(), capture_output=False, text=True)
+        training_elapsed = time.time() - training_start
+
+        # Check the result
+        if result.returncode == 0:
+            _print_stage("Training 3D Gaussian Splats", "COMPLETED", training_elapsed)
+            console.print(result.stdout)  # Output of the command
+        else:
+            _print_stage("Training 3D Gaussian Splats", "FAILED")
+            console.print(result.stderr)  # Error output
 
 def extract_frames(video_path:Path,rgbs_path:Path,
                    extractor_config:Dict['str',Union[int,float]]) -> List[np.ndarray]:
     """
     Extracts frame data from video into a folder of images.
-    
+
     """
 
     # Unpack the extractor configs
@@ -305,44 +461,69 @@ def extract_frames(video_path:Path,rgbs_path:Path,
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError("Error: Cannot open the video file.")
-    
-    # Survey frames for aruco markers
+
+    # Survey frames for aruco markers with progress bar
     Ntot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     Tarc,Temp = [],[]
-    for _ in range(Ntot):
-        ret, frame = cap.read()
-        if not ret:
-            break
 
-        # Check if the frame has an aruco marker
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, ids, _ = detector.detectMarkers(gray)
+    progress = Progress(
+        TextColumn("[bold cyan]Scanning for markers"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        console=console
+    )
 
-        # Bin the frame by the marker detection
-        if ids is not None and len(ids) == 1 and ids[0] == mkr_id:
-            Tarc.append(cap.get(cv2.CAP_PROP_POS_MSEC))
-        else:
-            Temp.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+    with progress:
+        task = progress.add_task("", total=Ntot)
+        for _ in range(Ntot):
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Check if the frame has an aruco marker
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            _, ids, _ = detector.detectMarkers(gray)
+
+            # Bin the frame by the marker detection
+            if ids is not None and len(ids) == 1 and ids[0] == mkr_id:
+                Tarc.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+            else:
+                Temp.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+
+            progress.update(task, advance=1)
 
     # Check if enough aruco markers were found
     if len(Tarc) < Narc:
         Tout = Tarc + ch.distribute_values(Temp,Nimg-len(Tarc))
-        print(f"Warning: Only {len(Tarc)} aruco markers found. Using {Narc-len(Tarc)} empty frames to fill the gap.")
+        console.print(f"[yellow]Warning: Only {len(Tarc)} aruco markers found. Using {Narc-len(Tarc)} empty frames to fill the gap.[/yellow]")
     else:
         Tout = ch.distribute_values(Tarc,Narc) + ch.distribute_values(Temp,Nimg-Narc)
-    
+
     Tout.sort()
 
-    # Extract the selected frames
-    for idx, tout in enumerate(Tout):
-        cap.set(cv2.CAP_PROP_POS_MSEC,tout)
-        ret, frame = cap.read()
-        if not ret:
-            break
+    # Extract the selected frames with progress bar
+    progress = Progress(
+        TextColumn("[bold cyan]Extracting frames"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        console=console
+    )
 
-        # Save the image
-        rgb_path = rgbs_path / f"frame_{idx+1:05d}.png"
-        cv2.imwrite(str(rgb_path),frame)
+    with progress:
+        task = progress.add_task("", total=len(Tout))
+        for idx, tout in enumerate(Tout):
+            cap.set(cv2.CAP_PROP_POS_MSEC,tout)
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Save the image
+            rgb_path = rgbs_path / f"frame_{idx+1:05d}.png"
+            cv2.imwrite(str(rgb_path),frame)
+
+            progress.update(task, advance=1)
 
     # Release the video capture object
     cap.release()

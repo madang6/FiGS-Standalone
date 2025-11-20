@@ -27,17 +27,18 @@ def camera_calibration(calibration_file_name:str,camera_name:str,
     """
 
     # Normalize and determine the relevant paths to use
+    # Default to the repository root (4 levels up from this file: src/figs/render/capture_calibration.py)
     if gsplats_path is None:
-        gsplats_path = Path(__file__).parent.parent.parent / 'gsplats'
+        gsplats_path = Path(__file__).parent.parent.parent.parent / '3dgs'
     else:
         gsplats_path = Path(gsplats_path).expanduser()
 
     if config_path is None:
-        config_path = Path(__file__).parent.parent.parent / 'configs'
+        config_path = Path(__file__).parent.parent.parent.parent / 'configs'
     else:
         config_path = Path(config_path).expanduser()
 
-    gsplat_capture_path = gsplats_path / 'capture'
+    gsplat_capture_path = gsplats_path / 'capture' / 'calibration_frames'
 
     # If user passed a file (e.g. a camera json), write to its parent; otherwise use config_path/'camera'
     if config_path.is_file() or str(config_path).lower().endswith('.json'):
