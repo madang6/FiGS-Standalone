@@ -19,7 +19,3 @@ notebooks/**
 !/3dgs/.gitkeep
 !/configs/
 !/configs/.gitkeep
-
-# Ignore conda environment file
-condaenv.r3abnox3.requirements.txt
-
