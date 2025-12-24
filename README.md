@@ -29,6 +29,10 @@ bash install.sh
 - FiGS package in editable mode
 
 ### Usage Examples
+0) Where to store data
+Drop your videos into 3dgs/captures. Drop your images into 3dgs/workspace.
+Update capture_examples variable in notebooks/figs_3dgs_oneliner.py with the video or image directory names.
+
 1) nerfstudio defaults
 ```bash
 cd 3dgs/captures
@@ -44,6 +48,13 @@ ns-export gaussian-splat --load-config <outputs/data-directory-name/splatfacto/Y
 ```
 
 2) FiGS notebooks
+To process (colmap, 3dgs, export) all videos in capture_examples:
+```bash
+cd 3dgs/notebooks
+conda activate FiGS
+python figs_3dgs_oneliner.py
+```
+
 ```bash
 cd notebooks
 python figs_3dgs.py
@@ -52,7 +63,7 @@ python figs_capture_calibration.py
 ```
 
 ### Known Issues (and some fixes)
-nerfstudio 1.1.5 is not up to date with COLMAP 3.13.0. This causes issues with
+1) nerfstudio 1.1.5 is not up to date with COLMAP 3.13.0. This causes issues with
 ```
 ns-process-data
 ```
@@ -82,3 +93,10 @@ Update(~/miniconda3/envs/FiGS/lib/python3.10/site-packages/nerfstudio/process_da
       146          vocab_tree_filename = get_vocab_tree()
 ```
 this fix was found using an AI code agent.
+
+2) JIT compiled gsplat doesn't work. Uninstall and reinstall the precompiled version:
+
+```bash
+pip uninstall gsplat -y
+pip install gsplat==1.4.0 --index-url https://docs.gsplat.studio/whl/pt21cu118
+```
