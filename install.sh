@@ -113,7 +113,8 @@ echo ""
 
 # Install conda packages individually to avoid dependency conflicts
 echo "=== Installing FiGS conda dependencies ==="
-conda install -y -c conda-forge albumentations colmap qpsolvers gdown ipykernel ipympl "matplotlib<3.9" tqdm tabulate cython "numpy==${NUMPY_VERSION}"
+conda install -y -c conda-forge albumentations qpsolvers gdown ipykernel ipympl "matplotlib<3.9" tqdm tabulate cython "numpy==${NUMPY_VERSION}"
+conda install -c conda-forge colmap
 
 # Install pip packages
 echo "=== Installing FiGS pip dependencies ==="

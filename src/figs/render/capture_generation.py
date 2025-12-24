@@ -23,6 +23,9 @@ import subprocess
 # Initialize console for rich output management
 console = Console()
 
+# Default processing mode when no config provided
+DEFAULT_MODE = "rgb"  # Standard splatfacto training
+
 def _resolve_repo_root() -> Path:
     """
     Resolve the absolute path to the FiGS-Standalone repository root.
@@ -86,20 +89,151 @@ def _print_stage(stage_name: str, status: str = "STARTED", elapsed_time: float =
     else:
         console.print(stage_text + status_text)
 
+def _load_capture_config(
+    capture_cfg_path: Path,
+    capture_cfg_name: str | None,
+    console: Console
+) -> dict | None:
+    """
+    Load capture configuration or return None for nerfstudio video mode.
+
+    Returns None when no config is available, signaling that nerfstudio's
+    VideoToNerfstudioDataset should be used instead of custom ArUco extraction.
+
+    Args:
+        capture_cfg_path: Path to config directory
+        capture_cfg_name: Config name or None for nerfstudio video mode
+        console: Rich console for output
+
+    Returns:
+        dict: Config with keys {"camera", "extractor", "mode"} for ArUco path
+        None: Use nerfstudio video mode (no ArUco markers expected)
+    """
+    # If no config name provided, use nerfstudio video mode
+    if not capture_cfg_name:
+        console.print("[yellow]No capture config specified, using nerfstudio video mode[/yellow]")
+        return None
+
+    # Try to load config file
+    config_file = capture_cfg_path / f"{capture_cfg_name}.json"
+    try:
+        with open(config_file, "r") as f:
+            loaded_config = json.load(f)
+    except FileNotFoundError:
+        console.print(f"[yellow]Config file '{capture_cfg_name}.json' not found, using nerfstudio video mode[/yellow]")
+        return None
+    except json.JSONDecodeError as e:
+        console.print(f"[yellow]Invalid JSON in '{capture_cfg_name}.json': {e}, using nerfstudio video mode[/yellow]")
+        return None
+
+    # If no extractor config, can't do ArUco processing → use nerfstudio video mode
+    if "extractor" not in loaded_config:
+        console.print("[yellow]No 'extractor' in config, using nerfstudio video mode[/yellow]")
+        return None
+
+    # Build result with loaded config + defaults for missing keys
+    result = {
+        "camera": loaded_config.get("camera", None),  # Can be None - extracted from SfM
+        "extractor": loaded_config["extractor"],      # Required for ArUco processing
+        "mode": loaded_config.get("mode", DEFAULT_MODE)  # Default to "rgb" if missing
+    }
+
+    # Warn if mode is missing
+    if "mode" not in loaded_config:
+        console.print(f"[yellow]'mode' not found in config, using default: {DEFAULT_MODE}[/yellow]")
+
+    return result
+
+def _process_video_without_config(
+    video_path: Path | str,
+    sfm_path: Path,
+    force_recompute: bool,
+    console: Console
+) -> None:
+    """
+    Process video using nerfstudio's VideoToNerfstudioDataset.
+
+    This path is used when no capture config exists (no ArUco markers).
+    Handles frame extraction and SfM automatically via nerfstudio.
+
+    Args:
+        video_path: Path to video file
+        sfm_path: Output path for SfM results
+        force_recompute: Whether to recompute SfM results
+        console: Rich console for output
+    """
+    from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
+
+    # Check if already processed
+    sfm_tfm_path = sfm_path / "transforms.json"
+    if sfm_tfm_path.exists() and not force_recompute:
+        _print_stage("Video Processing (nerfstudio)", "SKIPPED", None)
+        console.print(f"[blue]  Found existing SfM results, skipping video processing[/blue]")
+        return
+
+    # Clear existing results if force_recompute
+    if force_recompute and sfm_path.exists():
+        shutil.rmtree(sfm_path)
+
+    _print_stage("Video Processing (nerfstudio)", "IN PROGRESS")
+    video_start = time.time()
+
+    # Use nerfstudio's video processor
+    ns_obj = VideoToNerfstudioDataset(
+        data=Path(video_path),
+        output_dir=sfm_path,
+        num_frames_target=300,           # Default frame count
+        matching_method="sequential",    # Better for video sequences
+        sfm_tool="hloc",                 # Use HLOC like existing code
+        gpu=True
+    )
+    ns_obj.main()
+
+    video_elapsed = time.time() - video_start
+    _print_stage("Video Processing (nerfstudio)", "COMPLETED", video_elapsed)
+
 def generate_gsplat(scene_file_name: str,
-                    capture_cfg_name: str = 'default',
+                    capture_cfg_name: str | None = None,
                     gsplats_path: Path = None,
                     config_path: Path = None,
                     force_recompute: bool = False) -> None:
     """
     Generate 3D Gaussian Splats from a video with checkpointing support.
 
+    Camera calibration is optional. If not provided, camera intrinsics are automatically
+    extracted from the video using Structure from Motion (SfM). This allows processing
+    videos without pre-calibrated camera parameters.
+
     Args:
         scene_file_name: Name of the scene to process
-        capture_cfg_name: Name of the camera capture configuration
+        capture_cfg_name: Name of the camera capture configuration. Can be:
+            - None (default): Use nerfstudio video mode (no ArUco markers, safest option)
+            - Config name like 'iphone15pro': Load from configs/capture/{name}.json
+            - 'default': Load default config (only if it has extractor settings)
         gsplats_path: Path to the 3dgs directory (defaults to repo_root/3dgs)
         config_path: Path to the configs directory (defaults to repo_root/configs)
         force_recompute: If True, recompute all stages. If False, skip completed stages.
+
+    Processing Modes (determined by config or default):
+        - "rgb": Standard RGB training using splatfacto (default, most general-purpose)
+        - "semantic": Semantic-aware training using gemsplat with RANSAC alignment
+        - "no_ransac": Standard training without RANSAC marker alignment
+
+    Examples:
+        # Minimal usage - just video file (uses nerfstudio video mode by default)
+        generate_gsplat("my_scene")
+
+        # Explicit video mode (same as above)
+        generate_gsplat("my_scene", capture_cfg_name=None)
+
+        # With ArUco markers and specific camera configuration
+        generate_gsplat("my_scene", capture_cfg_name="iphone15pro")
+
+        # With custom paths
+        generate_gsplat("my_scene",
+                       capture_cfg_name="pixel8pro",
+                       gsplats_path=Path("/custom/3dgs"),
+                       config_path=Path("/custom/configs"))
     """
     # Resolve repository root to ensure outputs always go to the correct location
     repo_root = _resolve_repo_root()
@@ -153,270 +287,302 @@ def generate_gsplat(scene_file_name: str,
 
     # Load the capture config
     _print_stage("Loading Configuration", "STARTED")
-    capture_config_file = capture_cfg_path/f"{capture_cfg_name}.json"
-    with open(capture_config_file, "r") as file:
-        capture_configs = json.load(file)
-
-    camera_config = capture_configs["camera"]
-    extractor_config = capture_configs["extractor"]
-    embedding_config = capture_configs["mode"]
+    config_dict = _load_capture_config(capture_cfg_path, capture_cfg_name, console)
     _print_stage("Loading Configuration", "COMPLETED")
 
-    # Extract the frame data (with checkpointing)
-    if _stage_complete(images_path) and not force_recompute:
-        frame_count = len(list(images_path.glob("*.png")))
-        _print_stage("Extracting Frames", "SKIPPED", None)
-        console.print(f"[blue]  Found {frame_count} existing frames, skipping extraction[/blue]")
-    else:
-        _print_stage("Extracting Frames", "IN PROGRESS")
-        frame_start = time.time()
-        # Clear existing frames if force_recompute
-        if force_recompute and images_path.exists():
-            shutil.rmtree(images_path)
-        extract_frames(video_path, images_path, extractor_config)
-        frame_elapsed = time.time() - frame_start
-        _print_stage("Extracting Frames", "COMPLETED", frame_elapsed)
-    
-    # ns_process data step (with checkpointing)
-    if sfm_tfm_path.exists() and not force_recompute:
-        _print_stage("Structure from Motion", "SKIPPED", None)
-        console.print(f"[blue]  Found existing SfM results, skipping SfM processing[/blue]")
-    else:
-        _print_stage("Structure from Motion", "IN PROGRESS")
-        sfm_start = time.time()
-        # Clear existing SfM results if force_recompute
-        if force_recompute and sfm_path.exists():
-            shutil.rmtree(sfm_path)
-        ns_obj = ImagesToNerfstudioDataset(
-            data=images_path, output_dir=sfm_path,
-            camera_type="perspective", matching_method="exhaustive", sfm_tool="hloc", gpu=True
-        )
-        ns_obj.main()
-        sfm_elapsed = time.time() - sfm_start
-        _print_stage("Structure from Motion", "COMPLETED", sfm_elapsed)
+    if config_dict is None:
+        # ===== PATH B: No config → Nerfstudio video mode (no ArUco markers) =====
+        console.print("[cyan]Using nerfstudio video mode (no ArUco markers)[/cyan]")
 
-    # Load the resulting transforms.json and sparse_points.ply
-    with open(sfm_tfm_path, "r") as f:
-        tfm_data = json.load(f)
+        _process_video_without_config(video_path, sfm_path, force_recompute, console)
 
-    sparse_pcloud = o3d.io.read_point_cloud(sfm_spc_path.as_posix())
-    
-    # Check if frame count matches
-    if len(tfm_data["frames"]) != extractor_config["num_images"]:
-        if len(tfm_data["frames"]) < round(0.99 * extractor_config["num_images"]):
-            raise ValueError(f"Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
+        # Load SfM results
+        sfm_tfm_path = sfm_path / "transforms.json"
+        sfm_spc_path = sfm_path / "sparse_pc.ply"
+        with open(sfm_tfm_path, "r") as f:
+            tfm_data = json.load(f)
+
+        # No RANSAC transform - use SfM coordinates directly
+        # Copy to main process paths for training
+        shutil.copy(sfm_tfm_path, tfm_path)
+        shutil.copy(sfm_spc_path, spc_path)
+
+        # Training command (standard splatfacto, no coordinate transforms)
+        command = [
+            "ns-train",
+            "splatfacto",
+            "--data", scene_file_name,
+            "--viewer.quit-on-train-completion", "True",
+            "--output-dir", 'outputs',
+            "--pipeline.model.camera-optimizer.mode", "SO3xR3",
+            "nerfstudio-data",
+            "--orientation-method", "none",
+            "--center-method", "none",
+        ]
+
+    else:
+        # ===== PATH A: With config → Custom ArUco marker-based processing =====
+        console.print("[cyan]Using custom ArUco marker-based processing[/cyan]")
+
+        camera_config = config_dict["camera"]
+        extractor_config = config_dict["extractor"]
+        embedding_config = config_dict["mode"]
+
+        # Extract the frame data (with checkpointing)
+        if _stage_complete(images_path) and not force_recompute:
+            frame_count = len(list(images_path.glob("*.png")))
+            _print_stage("Extracting Frames", "SKIPPED", None)
+            console.print(f"[blue]  Found {frame_count} existing frames, skipping extraction[/blue]")
         else:
-            print(f"Warning: Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
-        # raise ValueError(f"Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
+            _print_stage("Extracting Frames", "IN PROGRESS")
+            frame_start = time.time()
+            # Clear existing frames if force_recompute
+            if force_recompute and images_path.exists():
+                shutil.rmtree(images_path)
+            extract_frames(video_path, images_path, extractor_config)
+            frame_elapsed = time.time() - frame_start
+            _print_stage("Extracting Frames", "COMPLETED", frame_elapsed)
+    
+        # ns_process data step (with checkpointing)
+        if sfm_tfm_path.exists() and not force_recompute:
+            _print_stage("Structure from Motion", "SKIPPED", None)
+            console.print(f"[blue]  Found existing SfM results, skipping SfM processing[/blue]")
+        else:
+            _print_stage("Structure from Motion", "IN PROGRESS")
+            sfm_start = time.time()
+            # Clear existing SfM results if force_recompute
+            if force_recompute and sfm_path.exists():
+                shutil.rmtree(sfm_path)
+            ns_obj = ImagesToNerfstudioDataset(
+                data=images_path, output_dir=sfm_path,
+                camera_type="perspective", matching_method="exhaustive", sfm_tool="hloc", gpu=True
+            )
+            ns_obj.main()
+            sfm_elapsed = time.time() - sfm_start
+            _print_stage("Structure from Motion", "COMPLETED", sfm_elapsed)
 
-    # Use sfm config if camera config is not provided
-    if camera_config is None:
-        fx,fy = tfm_data["fl_x"],tfm_data["fl_y"]
-        cx,cy = tfm_data["cx"],tfm_data["cy"]
-        k1,k2 = tfm_data["k1"],tfm_data["k2"]
-        p1,p2 = tfm_data["p1"],tfm_data["p2"]
+        # Load the resulting transforms.json and sparse_points.ply
+        with open(sfm_tfm_path, "r") as f:
+            tfm_data = json.load(f)
 
-        camera_config = {
-            "model": tfm_data["camera_model"],
-            "height": tfm_data["h"],
-            "width": tfm_data["w"],
-            "intrinsics_matrix": [
-                [ fx, 0.0,  cx],
-                [0.0,  fy,  cy],
-                [0.0, 0.0, 1.0]
-            ],
-            "distortion_coefficients": [k1,k2,p1,p2]
-        }
+        sparse_pcloud = o3d.io.read_point_cloud(sfm_spc_path.as_posix())
+    
+        # Check if frame count matches
+        if len(tfm_data["frames"]) != extractor_config["num_images"]:
+            if len(tfm_data["frames"]) < round(0.99 * extractor_config["num_images"]):
+                raise ValueError(f"Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
+            else:
+                print(f"Warning: Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
+            # raise ValueError(f"Frame count mismatch: {len(tfm_data['frames'])} frames in SfM data. Expected {extractor_config['num_images']} images.")
+
+        # Use sfm config if camera config is not provided
+        if camera_config is None:
+            fx,fy = tfm_data["fl_x"],tfm_data["fl_y"]
+            cx,cy = tfm_data["cx"],tfm_data["cy"]
+            k1,k2 = tfm_data["k1"],tfm_data["k2"]
+            p1,p2 = tfm_data["p1"],tfm_data["p2"]
+
+            camera_config = {
+                "model": tfm_data["camera_model"],
+                "height": tfm_data["h"],
+                "width": tfm_data["w"],
+                "intrinsics_matrix": [
+                    [ fx, 0.0,  cx],
+                    [0.0,  fy,  cy],
+                    [0.0, 0.0, 1.0]
+                ],
+                "distortion_coefficients": [k1,k2,p1,p2]
+            }
         
-    # Compute the transform using aruco markers (with checkpointing)
-    # Check if transforms have already been computed
-    transforms_computed = tfm_path.exists() and (tfm_path.stat().st_size > 1000)  # Check file is substantial
+        # Compute the transform using aruco markers (with checkpointing)
+        # Check if transforms have already been computed
+        transforms_computed = tfm_path.exists() and (tfm_path.stat().st_size > 1000)  # Check file is substantial
 
-    if transforms_computed and not force_recompute:
-        _print_stage("Computing Transforms", "SKIPPED", None)
-        console.print(f"[blue]  Found existing transform results, skipping transform computation[/blue]")
-        # Still need to load the computed transforms for later use
-        with open(tfm_path, "r") as f:
-            tfm_data_updated = json.load(f)
-        # Extract scale, rotation, translation from saved data if available
-        if "sfm_to_mocap_T" in tfm_data_updated and len(tfm_data_updated["sfm_to_mocap_T"]) > 0:
-            T_data = np.array(tfm_data_updated["sfm_to_mocap_T"][0]["sfm_to_mocap_T"])
-            cs, Rs, ts = 1.0, T_data[:3, :3], T_data[:3, 3]
+        if transforms_computed and not force_recompute:
+            _print_stage("Computing Transforms", "SKIPPED", None)
+            console.print(f"[blue]  Found existing transform results, skipping transform computation[/blue]")
+            # Still need to load the computed transforms for later use
+            with open(tfm_path, "r") as f:
+                tfm_data_updated = json.load(f)
+            # Extract scale, rotation, translation from saved data if available
+            if "sfm_to_mocap_T" in tfm_data_updated and len(tfm_data_updated["sfm_to_mocap_T"]) > 0:
+                T_data = np.array(tfm_data_updated["sfm_to_mocap_T"][0]["sfm_to_mocap_T"])
+                cs, Rs, ts = 1.0, T_data[:3, :3], T_data[:3, 3]
+            else:
+                # Fallback: recompute if not found
+                _print_stage("Computing Transforms", "IN PROGRESS")
+                transform_start = time.time()
+                Psfm, Parc = extract_positions(sfm_path, extractor_config, camera_config)
+                cs, Rs, ts = ch.compute_ransac_transform(Psfm, Parc)
+                transform_elapsed = time.time() - transform_start
+                _print_stage("Computing Transforms", "COMPLETED", transform_elapsed)
         else:
-            # Fallback: recompute if not found
             _print_stage("Computing Transforms", "IN PROGRESS")
             transform_start = time.time()
             Psfm, Parc = extract_positions(sfm_path, extractor_config, camera_config)
             cs, Rs, ts = ch.compute_ransac_transform(Psfm, Parc)
             transform_elapsed = time.time() - transform_start
             _print_stage("Computing Transforms", "COMPLETED", transform_elapsed)
-    else:
-        _print_stage("Computing Transforms", "IN PROGRESS")
-        transform_start = time.time()
-        Psfm, Parc = extract_positions(sfm_path, extractor_config, camera_config)
-        cs, Rs, ts = ch.compute_ransac_transform(Psfm, Parc)
-        transform_elapsed = time.time() - transform_start
-        _print_stage("Computing Transforms", "COMPLETED", transform_elapsed)
 
-    if embedding_config == "semantic":
-        # sfm_to_world_T = np.eye(4)
-        # sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
+        if embedding_config == "semantic":
+            # sfm_to_world_T = np.eye(4)
+            # sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
 
-        # # Save the updated files
-        # tfm_data["sfm_to_mocap_T"] = []
-        # sfm_T = {}
-        # sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
-        # tfm_data["sfm_to_mocap_T"].append(sfm_T)
-        # with open(tfm_path, "w", encoding="utf8") as f:
-        #     json.dump(tfm_data, f, indent=4)
+            # # Save the updated files
+            # tfm_data["sfm_to_mocap_T"] = []
+            # sfm_T = {}
+            # sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
+            # tfm_data["sfm_to_mocap_T"].append(sfm_T)
+            # with open(tfm_path, "w", encoding="utf8") as f:
+            #     json.dump(tfm_data, f, indent=4)
         
-        # o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
+            # o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
         
-        # # Run the gsplat generation
-        # command = [
-        #     "ns-train",
-        #     "gemsplat",
-        #     "--data", scene_file_name,
-        #     "--viewer.quit-on-train-completion", "True",
-        #     "--output-dir", 'outputs',
-        #     "--pipeline.model.camera-optimizer.mode", "SO3xR3",
-        #     # "--pipeline.model.rasterize-mode antialiased",
-        #     "nerfstudio-data",
-        #     "--orientation-method", "none",
-        #     "--center-method", "none"
-        # ]
-        sfm_to_world_T = np.eye(4)
-        sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
+            # # Run the gsplat generation
+            # command = [
+            #     "ns-train",
+            #     "gemsplat",
+            #     "--data", scene_file_name,
+            #     "--viewer.quit-on-train-completion", "True",
+            #     "--output-dir", 'outputs',
+            #     "--pipeline.model.camera-optimizer.mode", "SO3xR3",
+            #     # "--pipeline.model.rasterize-mode antialiased",
+            #     "nerfstudio-data",
+            #     "--orientation-method", "none",
+            #     "--center-method", "none"
+            # ]
+            sfm_to_world_T = np.eye(4)
+            sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
 
-        # Save the updated files
-        tfm_data["sfm_to_mocap_T"] = []
-        sfm_T = {}
-        sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
-        tfm_data["sfm_to_mocap_T"].append(sfm_T)
-        with open(tfm_path, "w", encoding="utf8") as f:
-            json.dump(tfm_data, f, indent=4)
+            # Save the updated files
+            tfm_data["sfm_to_mocap_T"] = []
+            sfm_T = {}
+            sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
+            tfm_data["sfm_to_mocap_T"].append(sfm_T)
+            with open(tfm_path, "w", encoding="utf8") as f:
+                json.dump(tfm_data, f, indent=4)
         
-        # Generate the sparse point cloud and transform files
-        for frame in tfm_data["frames"]:
-            Tc2s = np.array(frame["transform_matrix"])
+            # Generate the sparse point cloud and transform files
+            for frame in tfm_data["frames"]:
+                Tc2s = np.array(frame["transform_matrix"])
 
-            Tc2w = np.eye(4)
-            Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
+                Tc2w = np.eye(4)
+                Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
 
-            frame["transform_matrix"] = Tc2w.tolist()
+                frame["transform_matrix"] = Tc2w.tolist()
 
-        sparse_points = np.asarray(sparse_pcloud.points)
-        for idx, point in enumerate(sparse_points):
-            sparse_points[idx,:] = cs*Rs@point + ts
+            sparse_points = np.asarray(sparse_pcloud.points)
+            for idx, point in enumerate(sparse_points):
+                sparse_points[idx,:] = cs*Rs@point + ts
 
-        sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
+            sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
 
-        # Save the updated files
-        with open(tfm_path, "w", encoding="utf8") as f:
-            json.dump(tfm_data, f, indent=4)
+            # Save the updated files
+            with open(tfm_path, "w", encoding="utf8") as f:
+                json.dump(tfm_data, f, indent=4)
 
-        o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
+            o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
 
-        # Run the gsplat generation
-        print("Command to run:")
-        command = [
-            "ns-train",
-            "gemsplat",
-            "--data", scene_file_name,
-            "--viewer.quit-on-train-completion", "True",
-            "--output-dir", 'outputs',
-            "--pipeline.model.camera-optimizer.mode", "SO3xR3",
-            "nerfstudio-data",
-            "--orientation-method", "none",
-            "--center-method", "none",
-        ]
-        print(" ".join(command))
-    elif embedding_config == "no_ransac":
+            # Run the gsplat generation
+            print("Command to run:")
+            command = [
+                "ns-train",
+                "gemsplat",
+                "--data", scene_file_name,
+                "--viewer.quit-on-train-completion", "True",
+                "--output-dir", 'outputs',
+                "--pipeline.model.camera-optimizer.mode", "SO3xR3",
+                "nerfstudio-data",
+                "--orientation-method", "none",
+                "--center-method", "none",
+            ]
+            print(" ".join(command))
+        elif embedding_config == "no_ransac":
 
-        sfm_to_world_T = np.eye(4)
-        sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
+            sfm_to_world_T = np.eye(4)
+            sfm_to_world_T[:3,:3],sfm_to_world_T[:3,3] = cs*Rs,ts
 
-        # Save the updated files
-        tfm_data["sfm_to_mocap_T"] = []
-        sfm_T = {}
-        sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
-        tfm_data["sfm_to_mocap_T"].append(sfm_T)
-        with open(tfm_path, "w", encoding="utf8") as f:
-            json.dump(tfm_data, f, indent=4)
+            # Save the updated files
+            tfm_data["sfm_to_mocap_T"] = []
+            sfm_T = {}
+            sfm_T["sfm_to_mocap_T"] = sfm_to_world_T.tolist()
+            tfm_data["sfm_to_mocap_T"].append(sfm_T)
+            with open(tfm_path, "w", encoding="utf8") as f:
+                json.dump(tfm_data, f, indent=4)
         
-        # Generate the sparse point cloud and transform files
-        for frame in tfm_data["frames"]:
-            Tc2s = np.array(frame["transform_matrix"])
+            # Generate the sparse point cloud and transform files
+            for frame in tfm_data["frames"]:
+                Tc2s = np.array(frame["transform_matrix"])
 
-            Tc2w = np.eye(4)
-            Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
-            # Tc2w[:3,:3],Tc2w[:3,3] = Tc2s[:3,:3],Tc2s[:3,3]
+                Tc2w = np.eye(4)
+                Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
+                # Tc2w[:3,:3],Tc2w[:3,3] = Tc2s[:3,:3],Tc2s[:3,3]
 
-            frame["transform_matrix"] = Tc2w.tolist()
+                frame["transform_matrix"] = Tc2w.tolist()
 
-        sparse_points = np.asarray(sparse_pcloud.points)
-        for idx, point in enumerate(sparse_points):
-            sparse_points[idx,:] = cs*Rs@point + ts
-            # sparse_points[idx,:] = point
+            sparse_points = np.asarray(sparse_pcloud.points)
+            for idx, point in enumerate(sparse_points):
+                sparse_points[idx,:] = cs*Rs@point + ts
+                # sparse_points[idx,:] = point
 
-        sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
+            sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
 
-        # Save the updated files
-        with open(tfm_path, "w", encoding="utf8") as f:
-            json.dump(tfm_data, f, indent=4)
+            # Save the updated files
+            with open(tfm_path, "w", encoding="utf8") as f:
+                json.dump(tfm_data, f, indent=4)
 
-        o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
+            o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
 
-        # Run the gsplat generation
-        print("Command to run:")
-        command = [
-            "ns-train",
-            "splatfacto",
-            "--data", scene_file_name,
-            "--viewer.quit-on-train-completion", "True",
-            "--output-dir", 'outputs',
-            "--pipeline.model.camera-optimizer.mode", "SO3xR3",
-            "nerfstudio-data",
-            "--orientation-method", "none",
-            "--center-method", "none",
-        ]
-        print(" ".join(command))
-    else:
-        # Generate the sparse point cloud and transform files
-        for frame in tfm_data["frames"]:
-            Tc2s = np.array(frame["transform_matrix"])
+            # Run the gsplat generation
+            print("Command to run:")
+            command = [
+                "ns-train",
+                "splatfacto",
+                "--data", scene_file_name,
+                "--viewer.quit-on-train-completion", "True",
+                "--output-dir", 'outputs',
+                "--pipeline.model.camera-optimizer.mode", "SO3xR3",
+                "nerfstudio-data",
+                "--orientation-method", "none",
+                "--center-method", "none",
+            ]
+            print(" ".join(command))
+        else:
+            # Generate the sparse point cloud and transform files
+            for frame in tfm_data["frames"]:
+                Tc2s = np.array(frame["transform_matrix"])
 
-            Tc2w = np.eye(4)
-            Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
+                Tc2w = np.eye(4)
+                Tc2w[:3,:3],Tc2w[:3,3] = Rs@Tc2s[:3,:3],cs*Rs@Tc2s[:3,3] + ts
 
-            frame["transform_matrix"] = Tc2w.tolist()
+                frame["transform_matrix"] = Tc2w.tolist()
 
-        sparse_points = np.asarray(sparse_pcloud.points)
-        for idx, point in enumerate(sparse_points):
-            sparse_points[idx,:] = cs*Rs@point + ts
+            sparse_points = np.asarray(sparse_pcloud.points)
+            for idx, point in enumerate(sparse_points):
+                sparse_points[idx,:] = cs*Rs@point + ts
 
-        sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
+            sparse_pcloud.points = o3d.utility.Vector3dVector(sparse_points)
 
-        # Save the updated files
-        with open(tfm_path, "w", encoding="utf8") as f:
-            json.dump(tfm_data, f, indent=4)
+            # Save the updated files
+            with open(tfm_path, "w", encoding="utf8") as f:
+                json.dump(tfm_data, f, indent=4)
 
-        o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
+            o3d.io.write_point_cloud(spc_path.as_posix(),sparse_pcloud)
 
-        # Run the gsplat generation
-        command = [
-            "ns-train",
-            "splatfacto",
-            # "gemsplat",
-            "--data", scene_file_name,
-            "--viewer.quit-on-train-completion", "True",
-            "--output-dir", 'outputs',
-            "--pipeline.model.camera-optimizer.mode", "SO3xR3",
-            "nerfstudio-data",
-            "--orientation-method", "none",
-            "--center-method", "none",
-            "--auto-scale-poses", "False"
-        ]
+            # Run the gsplat generation
+            command = [
+                "ns-train",
+                "splatfacto",
+                # "gemsplat",
+                "--data", scene_file_name,
+                "--viewer.quit-on-train-completion", "True",
+                "--output-dir", 'outputs',
+                "--pipeline.model.camera-optimizer.mode", "SO3xR3",
+                "nerfstudio-data",
+                "--orientation-method", "none",
+                "--center-method", "none",
+                "--auto-scale-poses", "False"
+            ]
 
     # Run the command (with checkpointing)
     # Check if training output already exists by searching for nerfstudio_models folder
