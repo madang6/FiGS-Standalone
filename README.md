@@ -80,6 +80,5 @@ Update(~/miniconda3/envs/FiGS/lib/python3.10/site-packages/nerfstudio/process_da
       144      ]
       145      if matching_method == "vocab_tree":
       146          vocab_tree_filename = get_vocab_tree()
-
-this fix was found using an AI code agent.
 ```
+this fix was found using an AI code agent.
