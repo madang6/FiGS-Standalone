@@ -22,4 +22,3 @@ notebooks/**
 
 # Ignore conda environment file
 condaenv.r3abnox3.requirements.txt
-
