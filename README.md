@@ -27,10 +27,11 @@ bash install.sh
 - FiGS package in editable mode
 
 ### Usage Examples
-0) Drop your videos into 3dgs/captures. Drop your images into 3dgs/workspace.
+0) To use your own data  
+Drop your videos into 3dgs/captures. Drop your images into 3dgs/workspace.
 Update capture_examples variable in notebooks/figs_3dgs_oneliner.py with the video or image directory names.
 
-2) nerfstudio defaults
+3) nerfstudio defaults
 ```bash
 cd 3dgs/captures
 ns-process-data video --data <data-directory-name> --output-dir ../workspace 
@@ -44,7 +45,7 @@ ns-export gaussian-splat --load-config <outputs/data-directory-name/splatfacto/Y
 --ouput-dir <outputs/data-directory-name/splatfacto/YYYY-YY-YY-YYYYYY/exports>
 ```
 
-2) FiGS notebooks
+2) FiGS notebooks  
 To process (colmap, 3dgs, export) all videos in capture_examples:
 ```bash
 cd 3dgs/notebooks
