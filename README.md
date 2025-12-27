@@ -1,14 +1,12 @@
 # FiGS: Flying in Gaussian Splats
 
-![FiGS](figs.png)
-
 FiGS is a framework for trajectory optimization and control in Gaussian Splatting environments.
 
 ## Installation
 
 ### Quick Start
 ```bash
-git clone -b acados-away https://github.com/StanfordMSL/FiGS-Standalone.git
+git clone https://github.com/StanfordMSL/FiGS-Standalone.git
 ```
 
 1) Update Submodules
