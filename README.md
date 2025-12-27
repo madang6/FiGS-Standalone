@@ -27,11 +27,10 @@ bash install.sh
 - FiGS package in editable mode
 
 ### Usage Examples
-0) Where to store data
-Drop your videos into 3dgs/captures. Drop your images into 3dgs/workspace.
+0) Drop your videos into 3dgs/captures. Drop your images into 3dgs/workspace.
 Update capture_examples variable in notebooks/figs_3dgs_oneliner.py with the video or image directory names.
 
-1) nerfstudio defaults
+2) nerfstudio defaults
 ```bash
 cd 3dgs/captures
 ns-process-data video --data <data-directory-name> --output-dir ../workspace 
