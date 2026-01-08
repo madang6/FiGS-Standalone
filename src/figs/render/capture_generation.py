@@ -258,6 +258,8 @@ def generate_gsplat(scene_file_name: str,
     
     # Find the correct video path
     video_files = list(capture_path.glob(f"*{scene_file_name}*"))
+    # Just files, no folders
+    video_files = [f for f in video_files if f.is_file()]
     if len(video_files) == 0:
         raise FileNotFoundError(f"No file found with name containing '{scene_file_name}' in {capture_path}")
     elif len(video_files) > 1:
@@ -306,6 +308,14 @@ def generate_gsplat(scene_file_name: str,
         # Copy to main process paths for training
         shutil.copy(sfm_tfm_path, tfm_path)
         shutil.copy(sfm_spc_path, spc_path)
+
+        # Symlink images directory to match ArUco mode structure
+        sfm_images_path = sfm_path / "images"
+        if images_path.exists() and not images_path.is_symlink():
+            # Remove the empty directory created earlier
+            images_path.rmdir()
+        if not images_path.exists():
+            images_path.symlink_to(sfm_images_path, target_is_directory=True)
 
         # Training command (standard splatfacto, no coordinate transforms)
         command = [

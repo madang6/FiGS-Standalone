@@ -60,6 +60,13 @@ conda activate "${ENV_NAME}"
 echo "=== Installing PyTorch ${TORCH_VER} + CUDA ${CUDA_MAJOR_MINOR} ==="
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 
+echo "=== Creating constraints file for critical dependencies ==="
+cat > /tmp/constraints.txt <<EOF
+numpy==${NUMPY_VERSION}
+torch==2.1.2+cu118
+torchvision==0.16.2+cu118
+EOF
+
 echo "=== Installing CUDA Toolkit ==="
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit -y
 
@@ -72,6 +79,17 @@ if [ -d "$TCNN_LOCAL_PATH" ]; then
 else
   echo "Local copy not found, falling back to GitHub (may fail with network issues)"
     python -m pip install ninja "${TINY_CUDA_NN_REPO}" --no-build-isolation
+fi
+
+echo "=== Installing COLMAP ==="
+conda install -y -c conda-forge colmap
+
+echo "=== Installing ffmpeg ==="
+conda install -y -c conda-forge ffmpeg
+
+if [ -d "./Hierarchical-Localization" ]; then
+    echo "=== Installing Hierarchical-Localization ==="
+    pip install --constraint /tmp/constraints.txt -e ./Hierarchical-Localization
 fi
 
 echo "=== Installing nerfstudio via pip ==="
@@ -105,19 +123,24 @@ PY
 echo
 echo "=== Nerfstudio base installation complete ==="
 
+echo "=== Uninstalling JIT gsplat & reinstalling functioning version ==="
+pip uninstall gsplat -y
+pip install gsplat==1.4.0 --index-url https://docs.gsplat.studio/whl/pt21cu118
+
 echo ""
 echo "=========================================="
 echo "Installing FiGS-specific dependencies"
 echo "=========================================="
 echo ""
 
-# Install conda packages individually to avoid dependency conflicts
-echo "=== Installing FiGS conda dependencies ==="
-conda install -y -c conda-forge albumentations qpsolvers gdown ipykernel ipympl "matplotlib<3.9" tqdm tabulate cython "numpy==${NUMPY_VERSION}"
-conda install -c conda-forge colmap
-
-# Install pip packages
-echo "=== Installing FiGS pip dependencies ==="
+echo "=== Installing misc dependencies ==="
+# conda install -c conda-forge albumentations --freeze-installed
+pip install albumentations --no-deps
+conda install -y -c conda-forge qpsolvers
+conda install -y -c conda-forge tabulate
+conda install -y -c conda-forge cython 
+pip install ipykernel --no-deps
+pip install ipympl --no-deps
 pip install rich imageio[ffmpeg]
 
 # Install editable packages if they exist
@@ -126,10 +149,32 @@ if [ -d "../acados/interfaces/acados_template" ]; then
     pip install -e ../acados/interfaces/acados_template
 fi
 
-if [ -d "./Hierarchical-Localization" ]; then
-    echo "=== Installing Hierarchical-Localization ==="
-    pip install -e ./Hierarchical-Localization
-fi
+# echo "=== Installing Remaining conda dependencies ==="
+# conda install -y -c conda-forge albumentations qpsolvers gdown ipykernel ipympl "matplotlib<3.9" tqdm tabulate cython "numpy==${NUMPY_VERSION}"
+
+# # Install pip packages
+# echo "=== Installing FiGS pip dependencies ==="
+# pip install rich imageio[ffmpeg]
 
 echo "=== Installing FiGS (current package) ==="
 pip install -e .
+
+echo ""
+echo "=========================================="
+echo "Patching COLMAP parameter names"
+echo "=========================================="
+echo ""
+
+# Fix deprecated SIFT parameter names in nerfstudio's colmap_utils.py
+COLMAP_UTILS_PATH="${CONDA_PREFIX}/lib/python${PYTHON_VERSION}/site-packages/nerfstudio/process_data/colmap_utils.py"
+
+if [ -f "$COLMAP_UTILS_PATH" ]; then
+    echo "=== Patching COLMAP parameters in colmap_utils.py ==="
+    # Replace SiftExtraction with FeatureExtraction
+    sed -i 's/--SiftExtraction\.use_gpu/--FeatureExtraction.use_gpu/g' "$COLMAP_UTILS_PATH"
+    # Replace SiftMatching with FeatureMatching
+    sed -i 's/--SiftMatching\.use_gpu/--FeatureMatching.use_gpu/g' "$COLMAP_UTILS_PATH"
+    echo "Successfully patched COLMAP parameters"
+else
+    echo "WARNING: Could not find colmap_utils.py at expected location: $COLMAP_UTILS_PATH"
+fi
