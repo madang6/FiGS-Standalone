@@ -99,7 +99,7 @@ fi
 echo "=== Installing nerfstudio via pip ==="
 python -m pip install nerfstudio
 
-ns-install-cli
+# ns-install-cli
 
 echo
 echo "=== Quick verification ==="
