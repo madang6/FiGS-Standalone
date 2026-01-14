@@ -10,7 +10,6 @@
 
 # Ignore contents of 3dgs/ and notebooks/
 3dgs/**
-notebooks/**
 
 # But track these directories
 !.gitignore
