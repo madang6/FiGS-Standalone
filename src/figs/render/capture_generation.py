@@ -316,8 +316,8 @@ def generate_gsplat(scene_file_name: str,
         # Symlink images directory to match ArUco mode structure
         sfm_images_path = sfm_path / "images"
         if images_path.exists() and not images_path.is_symlink():
-            # Remove the empty directory created earlier
-            images_path.rmdir()
+            # Remove the directory created earlier (may contain files from previous runs)
+            shutil.rmtree(images_path)
         if not images_path.exists():
             images_path.symlink_to(sfm_images_path, target_is_directory=True)
 

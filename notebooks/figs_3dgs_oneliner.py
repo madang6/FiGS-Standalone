@@ -25,4 +25,5 @@ for scene_name in capture_examples:
     # Paths default to repo root, no need to specify them explicitly
     # gsplats_path defaults to repo_root / '3dgs'
     # config_path defaults to repo_root / 'configs'
-    pg.generate_gsplat(scene_name, force_recompute=True, capture_cfg_name="iphone15pro")
+    # pg.generate_gsplat(scene_name, force_recompute=True, capture_cfg_name="iphone15pro")
+    pg.generate_gsplat(scene_name, force_recompute=True)
