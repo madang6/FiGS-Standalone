@@ -16,10 +16,10 @@
             ]
     },
     "extractor": {
-        "num_images": 300,
-        "num_marked": 20,
-        "marker_length": 0.341,
+        "num_images": 300, 
+        "num_marked": 14,
+        "marker_length": 0.142,
         "marker_id": 0
     },
-    "mode": "no_ransac"
+    "mode": "rgb"
 }

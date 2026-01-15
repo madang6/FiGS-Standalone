@@ -38,19 +38,24 @@ class GSplat():
         current_path = self.config_path
         print(f"Current path dict: {current_path}")
         print(f"Current path name: {current_path.name}")
-        found_paths = []
-        while current_path != current_path.name:  # Stop when reaching the filesystem root
-            if current_path.name == "SousVide-Semantic":
-                found_paths.append(current_path)  # Collect all matching occurrences
+        
+        # Search upward for 'src' directory, then go up one level to get workspace root
+        workspace_root = None
+        while current_path.parent != current_path:  # Stop when reaching the filesystem root
+            if current_path.name == "src":
+                workspace_root = current_path.parent  # Go up one level from 'src'
                 break
             current_path = current_path.parent  # Move up one level
+        
+        if workspace_root is None:
+            raise FileNotFoundError(f"Could not find 'src' directory in parent directories of {self.config_path}")
             
         relative_target = Path("configs/perception/perception_mode.yml")
-        target_path = found_paths[0] / relative_target
+        target_path = workspace_root / relative_target
         self.perception_path = target_path
 
         relative_target = Path("configs/frame/carl.json")
-        target_path = found_paths[0] / relative_target
+        target_path = workspace_root / relative_target
         self.drone_path = target_path
 
         with open(self.drone_path, 'r') as file:

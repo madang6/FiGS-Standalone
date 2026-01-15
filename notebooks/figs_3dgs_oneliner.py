@@ -8,7 +8,8 @@ import figs.render.capture_generation as pg
 #%%
 # FiGS Capture Examples (scene_name, capture_name)
 capture_examples = [
-    'flightroom_ssv_exp'
+    # 'flightroom_ssv_exp'
+    'packardpark'
 ]
 
 # Set repo root for consistent path handling
@@ -26,4 +27,4 @@ for scene_name in capture_examples:
     # gsplats_path defaults to repo_root / '3dgs'
     # config_path defaults to repo_root / 'configs'
     # pg.generate_gsplat(scene_name, force_recompute=True, capture_cfg_name="iphone15pro")
-    pg.generate_gsplat(scene_name, force_recompute=True)
+    pg.generate_gsplat(scene_name, force_recompute=True, capture_cfg_name="iphone15pro_314")

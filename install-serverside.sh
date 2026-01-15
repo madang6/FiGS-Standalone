@@ -146,6 +146,7 @@ conda install -y -c conda-forge cython
 pip install ipykernel --no-deps
 pip install ipympl --no-deps
 pip install rich imageio[ffmpeg]
+pip install roma
 
 # Install acados - check external location first, then initialize submodule if needed
 ACADOS_BUILT=false
