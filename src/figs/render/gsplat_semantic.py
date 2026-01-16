@@ -35,20 +35,15 @@ class GSplat():
         # Do some acrobatics to find necessary config files
         self.config_path = scene_config['path']
         self.name = scene_config['name']
-        current_path = self.config_path
-        print(f"Current path dict: {current_path}")
-        print(f"Current path name: {current_path.name}")
         
-        # Search upward for 'src' directory, then go up one level to get workspace root
-        workspace_root = None
-        while current_path.parent != current_path:  # Stop when reaching the filesystem root
-            if current_path.name == "src":
-                workspace_root = current_path.parent  # Go up one level from 'src'
-                break
-            current_path = current_path.parent  # Move up one level
+        # Get workspace root from this file's location: render -> figs -> src -> repo root
+        workspace_root = Path(__file__).resolve().parents[3]
         
-        if workspace_root is None:
-            raise FileNotFoundError(f"Could not find 'src' directory in parent directories of {self.config_path}")
+        # Safety check 
+        if not (workspace_root / "src").is_dir():
+            raise FileNotFoundError(
+                f"Repo root detection failed: {workspace_root} (no 'src' directory found)"
+            )
             
         relative_target = Path("configs/perception/perception_mode.yml")
         target_path = workspace_root / relative_target

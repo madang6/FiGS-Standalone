@@ -8,19 +8,19 @@ from figs.simulator import Simulator
 from figs.control.vehicle_rate_mpc import VehicleRateMPC
 
 import os
-os.environ["ACADOS_SOURCE_DIR"] = "/data/madang/FiGS-standalone/acados"
-os.environ["LD_LIBRARY_PATH"] = os.getenv("LD_LIBRARY_PATH", "") + "/data/madang/FiGS-standalone/acados/lib"
+os.environ["ACADOS_SOURCE_DIR"] = "/data/<username>/FiGS-Standalone/acados"
+os.environ["LD_LIBRARY_PATH"] = os.getenv("LD_LIBRARY_PATH", "") + "/data/<username>/FiGS-Standalone/acados/lib"
 
 import numpy as np
 
 # print(os.getenv("ACADOS_SOURCE_DIR"))
 # print(os.getenv("LD_LIBRARY_PATH"))
 
-# import ctypes
-# ctypes.CDLL("/data/<username>/FiGS-standalone/acados/lib/libqpOASES_e.so.3.1")
-# ctypes.CDLL("/data/<username>/FiGS-standalone/acados/lib/libblasfeo.so")
-# ctypes.CDLL("/data/<username>/FiGS-standalone/acados/lib/libhpipm.so")
-# ctypes.CDLL("/data/<username>/FiGS-standalone/acados/lib/libacados.so")
+import ctypes
+ctypes.CDLL("/data/<username>/FiGS-Standalone/acados/lib/libqpOASES_e.so")
+ctypes.CDLL("/data/<username>/FiGS-Standalone/acados/lib/libblasfeo.so")
+ctypes.CDLL("/data/<username>/FiGS-Standalone/acados/lib/libhpipm.so")
+ctypes.CDLL("/data/<username>/FiGS-Standalone/acados/lib/libacados.so")
 
 #%%
 # FiGS Capture Examples (scene_name, capture_name)
