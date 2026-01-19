@@ -99,7 +99,7 @@ fi
 echo "=== Installing nerfstudio via pip ==="
 python -m pip install nerfstudio
 
-ns-install-cli
+# ns-install-cli
 
 echo
 echo "=== Quick verification ==="
@@ -146,11 +146,63 @@ conda install -y -c conda-forge cython
 pip install ipykernel --no-deps
 pip install ipympl --no-deps
 pip install rich imageio[ffmpeg]
+pip install roma
 
-# Install editable packages if they exist
+# Install acados - check external location first, then initialize submodule if needed
+ACADOS_BUILT=false
 if [ -d "../acados/interfaces/acados_template" ]; then
-    echo "=== Installing acados_template ==="
+    echo "=== Installing acados_template from ../acados ==="
     pip install -e ../acados/interfaces/acados_template
+    ACADOS_BUILT=true
+elif [ -d "./acados/interfaces/acados_template" ]; then
+    echo "=== Installing acados_template from ./acados ==="
+    pip install -e ./acados/interfaces/acados_template
+    ACADOS_BUILT=true
+else
+    echo "=== acados not found, initializing submodule ==="
+    git submodule sync
+    if ! git submodule update --init --recursive acados 2>/dev/null; then
+        echo "Submodule not registered, adding it..."
+        git submodule add https://github.com/acados/acados.git acados || echo "Submodule add failed, may already exist in .gitmodules"
+    fi
+    
+    if [ -d "./acados" ]; then
+        echo "=== Building acados ==="
+        cd acados
+        # Initialize acados's own submodules (blasfeo, hpipm, qpoases, etc.)
+        git submodule update --init --recursive
+        # Add build artifacts to .gitignore to avoid untracked content warnings
+        if ! grep -q "^build/" .gitignore 2>/dev/null; then
+            echo "build/" >> .gitignore
+        fi
+        mkdir -p build
+        cd build
+        cmake -DACADOS_WITH_QPOASES=ON ..
+        make install -j4
+        cd ../..
+        
+        if [ -d "./acados/interfaces/acados_template" ]; then
+            echo "=== Installing acados_template ==="
+            pip install -e ./acados/interfaces/acados_template
+            ACADOS_BUILT=true
+        else
+            echo "WARNING: Could not find acados_template after build"
+        fi
+    else
+        echo "WARNING: Could not find acados after submodule initialization"
+    fi
+fi
+
+# Set acados environment variables if successfully installed
+if [ "$ACADOS_BUILT" = true ]; then
+    echo "=== Setting acados environment variables ==="
+    ACADOS_PATH="$(cd ./acados 2>/dev/null && pwd || cd ../acados 2>/dev/null && pwd)"
+    if [ -n "$ACADOS_PATH" ]; then
+        conda env config vars set ACADOS_SOURCE_DIR="$ACADOS_PATH"
+        conda env config vars set LD_LIBRARY_PATH="$ACADOS_PATH/lib:\${LD_LIBRARY_PATH}"
+        echo "ACADOS_SOURCE_DIR set to: $ACADOS_PATH"
+        echo "Note: Restart your conda environment for these variables to take effect"
+    fi
 fi
 
 # echo "=== Installing Remaining conda dependencies ==="
@@ -182,3 +234,89 @@ if [ -f "$COLMAP_UTILS_PATH" ]; then
 else
     echo "WARNING: Could not find colmap_utils.py at expected location: $COLMAP_UTILS_PATH"
 fi
+
+echo ""
+echo "=========================================="
+echo "STEP 4: GemSplat Installation (Safe Mode)"
+echo "=========================================="
+echo ""
+
+# Initialize gemsplat submodule if not already done
+if [ ! -f "./gemsplat/pyproject.toml" ]; then
+    echo "=== Initializing gemsplat submodule ==="
+    git submodule update --init --recursive gemsplat
+fi
+
+# Parse and install only missing gemsplat dependencies
+if [ -d "./gemsplat" ]; then
+    cd gemsplat
+    
+    echo "=== Checking gemsplat dependencies ==="
+    MISSING_DEPS=$(python3 << 'EOFPYTHON'
+import re
+import subprocess
+import json
+
+# Read pyproject.toml
+with open('pyproject.toml', 'r') as f:
+    content = f.read()
+
+# Extract dependencies list
+deps_match = re.search(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
+if not deps_match:
+    print("")
+    exit(0)
+
+deps_text = deps_match.group(1)
+# Parse each dependency line
+deps = []
+for line in deps_text.split(','):
+    line = line.strip().strip('"').strip("'")
+    if line and not line.startswith('#'):
+        # Extract package name (before @ or >=, etc.)
+        pkg_name = re.split(r'[@><=!]', line)[0].strip().lower()
+        if pkg_name and '@' not in line and not line.startswith('git+'):
+            deps.append(pkg_name)
+
+# Get installed packages
+result = subprocess.run(['pip', 'list', '--format=json'], capture_output=True, text=True)
+installed = {pkg['name'].lower() for pkg in json.loads(result.stdout)}
+
+# Find missing packages
+missing = [dep for dep in deps if dep not in installed]
+print(' '.join(missing))
+EOFPYTHON
+)
+    
+    if [ -z "$MISSING_DEPS" ]; then
+        echo "All gemsplat dependencies already satisfied!"
+    else
+        echo "Missing dependencies: $MISSING_DEPS"
+        echo "Running dry-run first..."
+        pip install --dry-run $MISSING_DEPS
+        echo ""
+        read -p "Dry-run looks good? Install? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            # Install all deps normally
+            pip install $MISSING_DEPS
+            if echo "$MISSING_DEPS" | grep -q "torchtyping"; then
+                echo "Installing torchtyping with --no-deps to preserve typeguard version..."
+                pip install --no-deps torchtyping
+            fi
+        else
+            echo "Skipping gemsplat dependency installation."
+        fi
+    fi
+    
+    echo "=== Installing gemsplat (editable, no deps) ==="
+    pip install -e . --no-deps
+    
+    cd ..
+else
+    echo "WARNING: gemsplat directory not found, skipping gemsplat installation"
+fi
+
+echo ""
+echo "=== Updating nerfstudio CLI ==="
+ns-install-cli

@@ -35,22 +35,22 @@ class GSplat():
         # Do some acrobatics to find necessary config files
         self.config_path = scene_config['path']
         self.name = scene_config['name']
-        current_path = self.config_path
-        print(f"Current path dict: {current_path}")
-        print(f"Current path name: {current_path.name}")
-        found_paths = []
-        while current_path != current_path.name:  # Stop when reaching the filesystem root
-            if current_path.name == "SousVide-Semantic":
-                found_paths.append(current_path)  # Collect all matching occurrences
-                break
-            current_path = current_path.parent  # Move up one level
+        
+        # Get workspace root from this file's location: render -> figs -> src -> repo root
+        workspace_root = Path(__file__).resolve().parents[3]
+        
+        # Safety check 
+        if not (workspace_root / "src").is_dir():
+            raise FileNotFoundError(
+                f"Repo root detection failed: {workspace_root} (no 'src' directory found)"
+            )
             
         relative_target = Path("configs/perception/perception_mode.yml")
-        target_path = found_paths[0] / relative_target
+        target_path = workspace_root / relative_target
         self.perception_path = target_path
 
         relative_target = Path("configs/frame/carl.json")
-        target_path = found_paths[0] / relative_target
+        target_path = workspace_root / relative_target
         self.drone_path = target_path
 
         with open(self.drone_path, 'r') as file:

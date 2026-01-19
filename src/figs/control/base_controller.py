@@ -29,7 +29,7 @@ class BaseController(ABC):
         """
         # Set the configuration directory
         if configs_path is None:
-            self.configs_path = Path(__file__).parent.parent.parent.parent.parent/'configs'
+            self.configs_path = Path(__file__).parent.parent.parent.parent/'configs'
         else:
             self.configs_path = configs_path
 
