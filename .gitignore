@@ -10,6 +10,7 @@
 
 # Ignore contents of 3dgs/ and notebooks/
 3dgs/**
+3dgs
 notebooks/**
 src/scripts/**
 
