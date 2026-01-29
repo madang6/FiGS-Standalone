@@ -10,6 +10,7 @@
 
 # Ignore contents of 3dgs/
 3dgs/**
+outputs
 
 # But track these directories
 !.gitignore
