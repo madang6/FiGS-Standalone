@@ -11,6 +11,7 @@
 # Ignore contents of 3dgs/
 3dgs/**
 outputs
+snoopy-singing-pebble.md
 
 # But track these directories
 !.gitignore
