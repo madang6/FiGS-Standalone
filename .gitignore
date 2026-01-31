@@ -21,3 +21,5 @@ src/scripts/**
 !/3dgs/.gitkeep
 !/configs/
 !/configs/.gitkeep
+outputs/
+.claude_changes_summary.md
