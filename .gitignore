@@ -21,3 +21,5 @@ snoopy-singing-pebble.md
 !/configs/
 !/configs/.gitkeep
 **/test_space/
+outputs/
+.claude_changes_summary.md
