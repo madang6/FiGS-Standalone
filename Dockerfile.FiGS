@@ -39,12 +39,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV QT_XCB_GL_INTEGRATION=xcb_egl
 
 # System dependencies (same as official nerfstudio + acados deps)
+# libxcrypt-dev, pkg-config, linux-libc-dev added for broader build compatibility
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         git \
         wget \
         ninja-build \
         build-essential \
+        pkg-config \
+        linux-libc-dev \
+        libxcrypt-dev \
         libboost-program-options-dev \
         libboost-filesystem-dev \
         libboost-graph-dev \
