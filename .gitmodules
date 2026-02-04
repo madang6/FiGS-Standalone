@@ -1,6 +1,6 @@
 [submodule "Hierarchical-Localization"]
 	path = Hierarchical-Localization
 	url = https://github.com/cvg/Hierarchical-Localization.git
-[submodule "acados"]
-	path = acados
-	url = https://github.com/acados/acados.git
+[submodule "gemsplat"]
+	path = gemsplat
+	url = https://github.com/madang6/gemsplat.git

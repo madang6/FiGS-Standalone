@@ -1,0 +1,43 @@
+version: '3.8'
+
+# FiGS base development environment
+# For SINGER development, use the docker-compose.yml in the SINGER repo instead
+
+services:
+  figs:
+    image: figs:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.FiGS
+    volumes:
+      # Mount FiGS-Standalone for editable install
+      - .:/workspace/FiGS-Standalone
+      # Mount data directory at same path as host so symlinks work
+      - ${DATA_PATH:-/media/admin/data/StanfordMSL/nerf_data}:${DATA_PATH:-/media/admin/data/StanfordMSL/nerf_data}
+      # Persist site-packages across container recreations
+      - site-packages:/usr/local/lib/python3.10/dist-packages
+    working_dir: /workspace/FiGS-Standalone
+    environment:
+      - DISPLAY=${DISPLAY:-}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    runtime: nvidia
+    network_mode: host
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+        HOST_UID=$$(stat -c '%u' /workspace/FiGS-Standalone)
+        HOST_GID=$$(stat -c '%g' /workspace/FiGS-Standalone)
+        if ! getent passwd $$HOST_UID >/dev/null 2>&1; then
+          groupadd -g $$HOST_GID figs 2>/dev/null || true
+          useradd -u $$HOST_UID -g $$HOST_GID -m -s /bin/bash figs 2>/dev/null || true
+        fi
+        USERNAME=$$(getent passwd $$HOST_UID | cut -d: -f1)
+        # Install editable packages
+        python -c 'import figs' 2>/dev/null || python -m pip install -e /workspace/FiGS-Standalone --no-deps
+        python -c 'import gemsplat' 2>/dev/null || python -m pip install -e /workspace/FiGS-Standalone/gemsplat --no-deps
+        exec runuser -u $$USERNAME -- bash -l
+      "
+
+volumes:
+  site-packages:

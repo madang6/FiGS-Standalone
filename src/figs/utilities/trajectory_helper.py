@@ -8,7 +8,12 @@ import math
 from scipy.spatial.transform import Rotation, Slerp
 from scipy.spatial import cKDTree
 from scipy.interpolate import CubicSpline
-from sklearn.cluster import DBSCAN
+try:
+    from sklearn.cluster import DBSCAN
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+    DBSCAN = None
 from typing import Dict,Tuple,Union
 
 from figs.tsampling.rrt_datagen_v10 import *
@@ -1759,3 +1764,192 @@ def RO_to_tXU(RO:Tuple[np.ndarray,np.ndarray,np.ndarray]) -> np.ndarray:
     tXU = np.vstack((Tro,Xro,Uro))
 
     return tXU
+
+
+def transforms_to_keyframes(
+    json_path: str,
+    name: str,
+    Nco: int,
+    N: int = 35,
+    constant_velocity: float = 1.0
+) -> dict:
+    """
+    Convert camera transforms from transforms.json into keyframes.json format.
+
+    Creates N+1 keyframes that follow the full camera trajectory (position + yaw),
+    with speed-based timing for constant velocity along the path.
+
+    Args:
+        json_path: Path to transforms.json file
+        name: Trajectory name for output dict
+        Nco: Number of polynomial coefficients
+        N: Number of keyframes (default 35)
+        constant_velocity: Speed along path in world units/second (default 1.0)
+
+    Returns:
+        A dict in keyframes format: {"name": str, "Nco": int, "keyframes": {...}}
+    """
+    import json
+    from scipy.interpolate import interp1d
+
+    # 1) Load transforms.json
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+
+    frames = data['frames']
+
+    # 2) Extract positions and compute yaw angles from each frame
+    positions = []
+    yaw_angles = []
+
+    for frame in frames:
+        T = np.array(frame['transform_matrix'])
+
+        # Position: last column, first 3 rows
+        pos = T[0:3, 3]
+        positions.append(pos)
+
+        # Extract rotation matrix (3x3 upper left)
+        R = T[0:3, 0:3]
+
+        # Camera -Z direction (camera forward/look direction)
+        # In camera frame: -Z is [0, 0, -1]
+        # In world frame: apply rotation
+        cam_neg_z = R @ np.array([0, 0, -1])
+
+        # Project onto XY plane and compute yaw (rotation about world Z axis)
+        # Yaw = atan2(Y_component, X_component)
+        yaw = np.arctan2(cam_neg_z[1], cam_neg_z[0])
+        yaw_angles.append(yaw)
+
+    positions = np.array(positions)  # shape (M, 3)
+    yaw_angles = np.array(yaw_angles)  # shape (M,)
+
+    # 3) Compute distances and path parameterization
+    diffs = np.diff(positions, axis=0)
+    segment_lengths = np.linalg.norm(diffs, axis=1)
+    cumulative_dist = np.insert(np.cumsum(segment_lengths), 0, 0)
+    total_distance = cumulative_dist[-1]
+
+    if total_distance < 1e-6:
+        raise ValueError(f"Transforms have zero total path length (distance={total_distance:.2e})")
+
+    # Total time to traverse path at constant velocity
+    total_time = total_distance / constant_velocity
+
+    # 4) Unwrap yaw angles to avoid discontinuities at ±π
+    # Use numpy's unwrap function which properly handles multi-rotation paths
+    unwrapped_yaw = np.unwrap(yaw_angles)
+
+    # 5) Create interpolators for positions and yaw vs cumulative distance
+    interp_x = interp1d(cumulative_dist, positions[:, 0], kind='cubic',
+                       bounds_error=False, fill_value='extrapolate')
+    interp_y = interp1d(cumulative_dist, positions[:, 1], kind='cubic',
+                       bounds_error=False, fill_value='extrapolate')
+    interp_z = interp1d(cumulative_dist, positions[:, 2], kind='cubic',
+                       bounds_error=False, fill_value='extrapolate')
+    interp_yaw = interp1d(cumulative_dist, unwrapped_yaw, kind='cubic',
+                         bounds_error=False, fill_value='extrapolate')
+
+    # 6) Sample N+1 keyframes evenly along the path (by distance)
+    path_samples = np.linspace(0, total_distance, N + 1)
+
+    keyframes = {}
+    for k in range(N + 1):
+        s_k = path_samples[k]
+        t_k = (s_k / total_distance) * total_time
+
+        # Interpolate position and yaw
+        x_k = float(interp_x(s_k))
+        y_k = float(interp_y(s_k))
+        z_k = float(interp_z(s_k))
+        theta_k = float(interp_yaw(s_k))
+
+        is_endpoint = (k == 0 or k == N)
+
+        if is_endpoint:
+            # At endpoints: use velocity format [value, rate]
+            # Compute velocities by finite difference
+            if k == 0:
+                # Forward difference at start
+                s_next = path_samples[1]
+                x_next = float(interp_x(s_next))
+                y_next = float(interp_y(s_next))
+                z_next = float(interp_z(s_next))
+                theta_next = float(interp_yaw(s_next))
+
+                dt = (s_next / total_distance) * total_time - t_k
+                if dt > 1e-8:
+                    vx = (x_next - x_k) / dt
+                    vy = (y_next - y_k) / dt
+                    vz = (z_next - z_k) / dt
+                    omega = (theta_next - theta_k) / dt
+                else:
+                    vx = vy = vz = omega = 0.0
+            else:
+                # Backward difference at end
+                s_prev = path_samples[N - 1]
+                x_prev = float(interp_x(s_prev))
+                y_prev = float(interp_y(s_prev))
+                z_prev = float(interp_z(s_prev))
+                theta_prev = float(interp_yaw(s_prev))
+
+                dt = t_k - (s_prev / total_distance) * total_time
+                if dt > 1e-8:
+                    vx = (x_k - x_prev) / dt
+                    vy = (y_k - y_prev) / dt
+                    vz = (z_k - z_prev) / dt
+                    omega = (theta_k - theta_prev) / dt
+                else:
+                    vx = vy = vz = omega = 0.0
+
+            fo = [
+                [x_k, vx],
+                [y_k, vy],
+                [z_k, vz],
+                [theta_k, omega]
+            ]
+        else:
+            # At intermediate keyframes: use unconstrained format [value, None, None]
+            fo = [
+                [x_k, None, None],
+                [y_k, None, None],
+                [z_k, None, None],
+                [theta_k, None, None]
+            ]
+
+        keyframes[f"fo{k}"] = {
+            "t": t_k,
+            "fo": fo
+        }
+
+    return {"name": name, "Nco": Nco, "keyframes": keyframes}
+
+
+def save_keyframes_to_json(
+    keyframes_dict: dict,
+    output_path: str
+) -> None:
+    """
+    Save keyframes dictionary to JSON file in configs/course format.
+
+    Takes a keyframes dict (from transforms_to_keyframes or generate_spin_keyframes)
+    and saves it to a JSON file, removing the 'name' field if present.
+
+    Args:
+        keyframes_dict: Dictionary with {"name", "Nco", "keyframes"}
+        output_path: Path to output JSON file
+    """
+    import json
+
+    # Create a new dict without the 'name' field for configs/course format
+    output_dict = {
+        "Nco": keyframes_dict["Nco"],
+        "keyframes": keyframes_dict["keyframes"]
+    }
+
+    # Write to JSON file with nice formatting
+    with open(output_path, 'w') as f:
+        json.dump(output_dict, f, indent=2)
+
+    print(f"✓ Saved keyframes to {output_path}")

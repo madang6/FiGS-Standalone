@@ -5,6 +5,7 @@ import json
 from typing import List, Tuple, Dict, Union
 import time
 import shutil
+import os
 
 from nerfstudio.process_data.images_to_nerfstudio_dataset import (
     ImagesToNerfstudioDataset,
@@ -270,16 +271,20 @@ def generate_gsplat(scene_file_name: str,
     # Initialize process paths
     process_path = workspace_path / scene_file_name
 
-    images_path = process_path / "images"
     spc_path = process_path / "sparse_pc.ply"
     tfm_path = process_path / "transforms.json"
 
     sfm_path = process_path / "sfm"
     sfm_spc_path = sfm_path / "sparse_pc.ply"
     sfm_tfm_path = sfm_path / "transforms.json"
-    
+
+    images_path = process_path / "images"
+
     process_path.mkdir(parents=True, exist_ok=True)
-    images_path.mkdir(parents=True, exist_ok=True)
+    if not (images_path.exists() or images_path.is_symlink()):
+        images_path.mkdir(parents=True, exist_ok=True)
+
+    print("images_path:",images_path)
 
     # Initialize output paths
     outputs_path = workspace_path/'outputs'
@@ -312,10 +317,11 @@ def generate_gsplat(scene_file_name: str,
         # Symlink images directory to match ArUco mode structure
         sfm_images_path = sfm_path / "images"
         if images_path.exists() and not images_path.is_symlink():
-            # Remove the empty directory created earlier
-            images_path.rmdir()
+            # Remove the directory created earlier (may contain files from previous runs)
+            shutil.rmtree(images_path)
         if not images_path.exists():
-            images_path.symlink_to(sfm_images_path, target_is_directory=True)
+            # Use relative path so symlink works in both Docker and host environments
+            images_path.symlink_to("sfm/images", target_is_directory=True)
 
         # Training command (standard splatfacto, no coordinate transforms)
         command = [
@@ -347,8 +353,13 @@ def generate_gsplat(scene_file_name: str,
             _print_stage("Extracting Frames", "IN PROGRESS")
             frame_start = time.time()
             # Clear existing frames if force_recompute
-            if force_recompute and images_path.exists():
-                shutil.rmtree(images_path)
+            if force_recompute and (images_path.exists() or images_path.is_symlink()):
+                if images_path.is_symlink():
+                    images_path.unlink()
+                else:
+                    shutil.rmtree(images_path)
+            if not (images_path.exists() or images_path.is_symlink()):
+                images_path.mkdir(parents=True, exist_ok=True)
             extract_frames(video_path, images_path, extractor_config)
             frame_elapsed = time.time() - frame_start
             _print_stage("Extracting Frames", "COMPLETED", frame_elapsed)
@@ -362,7 +373,13 @@ def generate_gsplat(scene_file_name: str,
             sfm_start = time.time()
             # Clear existing SfM results if force_recompute
             if force_recompute and sfm_path.exists():
-                shutil.rmtree(sfm_path)
+                try:
+                    shutil.rmtree(sfm_path)
+                except PermissionError as e:
+                    console.print(f"[yellow]Warning: Cannot delete {sfm_path} due to permission error.[/yellow]")
+                    console.print(f"[yellow]This may happen when files were created by Docker as root.[/yellow]")
+                    console.print(f"[yellow]Run: sudo chown -R $USER:$USER {sfm_path}[/yellow]")
+                    raise
             ns_obj = ImagesToNerfstudioDataset(
                 data=images_path, output_dir=sfm_path,
                 camera_type="perspective", matching_method="exhaustive", sfm_tool="hloc", gpu=True
@@ -643,7 +660,7 @@ def extract_frames(video_path:Path,rgbs_path:Path,
     Tarc,Temp = [],[]
 
     progress = Progress(
-        TextColumn("[bold cyan]Scanning for markers"),
+        TextColumn("[bold cyan]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TimeRemainingColumn(),
@@ -651,7 +668,7 @@ def extract_frames(video_path:Path,rgbs_path:Path,
     )
 
     with progress:
-        task = progress.add_task("", total=Ntot)
+        task = progress.add_task(f"Scanning for markers (ID {mkr_id}): 0 found", total=Ntot)
         for _ in range(Ntot):
             ret, frame = cap.read()
             if not ret:
@@ -664,10 +681,10 @@ def extract_frames(video_path:Path,rgbs_path:Path,
             # Bin the frame by the marker detection
             if ids is not None and len(ids) == 1 and ids[0] == mkr_id:
                 Tarc.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+                progress.update(task, description=f"Scanning for markers (ID {mkr_id}): {len(Tarc)} found", advance=1)
             else:
                 Temp.append(cap.get(cv2.CAP_PROP_POS_MSEC))
-
-            progress.update(task, advance=1)
+                progress.update(task, advance=1)
 
     # Check if enough aruco markers were found
     if len(Tarc) < Narc:
@@ -677,6 +694,8 @@ def extract_frames(video_path:Path,rgbs_path:Path,
         Tout = ch.distribute_values(Tarc,Narc) + ch.distribute_values(Temp,Nimg-Narc)
 
     Tout.sort()
+    
+    console.print(f"[cyan]Saving {len(Tout)} frames to: {rgbs_path.resolve()}[/cyan]")
 
     # Extract the selected frames with progress bar
     progress = Progress(
@@ -687,19 +706,27 @@ def extract_frames(video_path:Path,rgbs_path:Path,
         console=console
     )
 
+    saved_count = 0
     with progress:
         task = progress.add_task("", total=len(Tout))
         for idx, tout in enumerate(Tout):
             cap.set(cv2.CAP_PROP_POS_MSEC,tout)
             ret, frame = cap.read()
             if not ret:
+                progress.console.print(f"[red]✗ Failed to read frame at index {idx}[/red]")
                 break
 
             # Save the image
             rgb_path = rgbs_path / f"frame_{idx+1:05d}.png"
-            cv2.imwrite(str(rgb_path),frame)
+            success = cv2.imwrite(str(rgb_path),frame)
+            if success:
+                saved_count += 1
+            else:
+                progress.console.print(f"[red]✗ Failed to write frame to {rgb_path}[/red]")
 
             progress.update(task, advance=1)
+    
+    console.print(f"[cyan]Markers detected: {len(Tarc)}/{Narc}, Total frames extracted: {saved_count}/{len(Tout)}, Output: {rgbs_path}[/cyan]")
 
     # Release the video capture object
     cap.release()

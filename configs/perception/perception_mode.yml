@@ -1,0 +1,7 @@
+visual_mode: "semantic_depth"
+# perception_type: "clipseg"
+# perception_type: "amradio"
+perception_type: "similarity"
+
+# visual_mode: "rgb"
+# perception_mode: "similarity"

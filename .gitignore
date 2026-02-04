@@ -8,14 +8,29 @@
 **/rollout_data/
 **/test_data/
 
-# Ignore contents of 3dgs/ and notebooks/
 3dgs/**
+3dgs
+notes/**
 notebooks/**
+!notebooks/figs_capture_calibration.py
+!notebooks/figs_generate_3dgs_example.py
+!notebooks/figs_flightsim_example.py
+!notebooks/figs_export_3dgs_example.py
 
-# But track these directories
+src/scripts/**
+
 !.gitignore
 !.gitkeep
 !/3dgs/
 !/3dgs/.gitkeep
 !/configs/
 !/configs/.gitkeep
+outputs/
+*.md
+!README.md
+**/test_space/
+
+configs/course/*
+!configs/course/track_spiral.json
+
+*.sh

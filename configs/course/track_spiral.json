@@ -1,0 +1,95 @@
+{
+  "Nco": 6,
+  "keyframes": {
+      "fo0": {
+          "t": 0.00,
+          "fo":   [
+              [ 1.60,  0.00],
+              [ 0.00, -0.50],
+              [-0.70,  0.00],
+              [-1.57,  0.00]
+          ]
+      },
+      "fo0a": {
+          "t": 5.00,
+          "fo":   [
+              [ 1.60, null, null, null],
+              [ null, null, null, null],
+              [-0.70, null, null, null],
+              [-1.80, null, null, null]
+          ]
+      },
+      "fo1": {
+          "t": 7.00,
+          "fo":   [
+              [ 1.50, null, null, null],
+              [-6.50, null, null, null],
+              [-0.90, null, null, null],
+              [-2.80, null, null, null]
+          ]
+      },
+      "fo2": {
+          "t": 8.00,
+          "fo":   [
+              [ 1.00, null, null, null],
+              [-7.00, null, null, null],
+              [-1.10, null, null, null],
+              [ null, null, null, null]
+          ]
+      },
+      "fo3": {
+          "t": 10.00,
+          "fo":   [
+              [-1.00, null, null, null],
+              [-7.00, null, null, null],
+              [-1.10, null, null, null],
+              [-4.72, null, null, null]
+          ]
+      },
+      "fo4": {
+          "t": 11.00,
+          "fo":   [
+              [-1.40, null, null, null],
+              [-6.50, null, null, null],
+              [-1.10, null, null, null],
+              [-5.00, null, null, null]
+          ]
+      },
+      "fo4a": {
+          "t": 13.00,
+          "fo":   [
+              [-1.40, null, null, null],
+              [ null, null, null, null],
+              [ null, null, null, null],
+              [ null, null, null, null]
+          ]
+      },
+      "fo5": {
+          "t": 17.00,
+          "fo":   [
+              [-1.40, null, null, null],
+              [-0.50, null, null, null],
+              [-1.60, null, null, null],
+              [-5.00, null, null, null]
+          ]
+      },
+      "fo6": {
+          "t": 18.00,
+          "fo":   [
+              [-1.00, null, null, null],
+              [ 0.00, null, null, null],
+              [-1.80, null, null, null],
+              [ null, null, null, null]
+          ]
+      },
+      "fo7": {
+          "t": 20.00,
+          "fo":   [
+              [ 0.00, 0.00],
+              [ 0.00, 0.00],
+              [-2.00, 0.00],
+              [-7.85, 0.00]
+          ]
+      }
+  }
+}
