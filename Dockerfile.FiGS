@@ -120,8 +120,10 @@ RUN git clone --recursive https://github.com/cvg/Hierarchical-Localization.git /
     rm -rf /opt/hloc
 
 # tiny-cuda-nn (requires --no-build-isolation to see installed torch)
+# NVCC_APPEND_FLAGS allows building with newer GCC versions than CUDA 11.8 officially supports
 RUN pip install --no-cache-dir ninja && \
     TCNN_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" \
+    NVCC_APPEND_FLAGS="-allow-unsupported-compiler" \
     pip install --no-cache-dir --no-build-isolation \
     "git+https://github.com/NVlabs/tiny-cuda-nn.git@b3473c81396fe927293bdfd5a6be32df8769927c#subdirectory=bindings/torch"
 
