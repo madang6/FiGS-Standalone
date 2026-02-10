@@ -11,20 +11,19 @@ The easiest way to get started is with Docker:
 ```bash
 git clone https://github.com/madang6/FiGS-Standalone.git
 cd FiGS-Standalone
-docker-compose build
-docker-compose run figs
+docker compose build              # ~20-30 min first time
+docker compose run --rm figs      # starts a shell with everything ready
 ```
 
-This provides a complete environment with all dependencies pre-configured.
+Editable packages (figs, gemsplat, coverage_view_selection) are installed automatically on startup. Source code is bind-mounted, so edits on the host are immediately visible in the container and vice versa.
 
-#### Configuration
-
-Customize paths via environment variables or a `.env` file:
+If you don't have `coverage_view_selection`, use the base config:
 
 ```bash
-# Default value
-DATA_PATH=/media/admin/data/StanfordMSL/nerf_data
+docker compose -f docker-compose.base.yml run --rm figs
 ```
+
+See [DOCKER_SETUP.md](DOCKER_SETUP.md) for full details, configuration options, and troubleshooting.
 
 #### For downstream projects
 

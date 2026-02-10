@@ -1,6 +1,7 @@
-# FiGS full development environment (with coverage_view_selection)
-# For the environment without coverage_view_selection, use docker-compose.base.yml instead.
-# For SINGER development, use the docker-compose.yml in the SINGER repo instead.
+# FiGS base development environment (without coverage_view_selection)
+# Usage: docker compose -f docker-compose.base.yml up
+#
+# For the full environment with coverage_view_selection, use docker-compose.yml instead.
 
 services:
   figs:
@@ -11,8 +12,6 @@ services:
     volumes:
       # Mount FiGS-Standalone for editable install (editable from host and container)
       - .:/workspace/FiGS-Standalone
-      # Mount coverage_view_selection for editable install
-      - ../coverage_view_selection:/workspace/coverage_view_selection
       # Mount data directory at same path as host so symlinks work
       - ${DATA_PATH:-/media/admin/data/StanfordMSL/nerf_data}:${DATA_PATH:-/media/admin/data/StanfordMSL/nerf_data}
     working_dir: /workspace/FiGS-Standalone
@@ -38,9 +37,7 @@ services:
         # Install editable packages as host user so .egg-info is host-owned
         runuser -u $$USERNAME -- python -m pip install -e /workspace/FiGS-Standalone --no-deps -q || { echo 'FATAL: failed to install figs'; exit 1; }
         runuser -u $$USERNAME -- python -m pip install -e /workspace/FiGS-Standalone/gemsplat --no-deps -q || { echo 'FATAL: failed to install gemsplat'; exit 1; }
-        runuser -u $$USERNAME -- python -m pip install -e /workspace/coverage_view_selection --no-deps -q || { echo 'FATAL: failed to install coverage_view_selection'; exit 1; }
         # Verify all packages are importable
-        runuser -u $$USERNAME -- python -c 'import figs, gemsplat, nbv_gym' || { echo 'FATAL: package import check failed'; exit 1; }
+        runuser -u $$USERNAME -- python -c 'import figs, gemsplat' || { echo 'FATAL: package import check failed'; exit 1; }
         exec runuser -u $$USERNAME -- bash -l
       "
-
