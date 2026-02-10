@@ -2,6 +2,7 @@
 
 ## Prerequisites
 
+- **x86_64 Linux** (ARM/Apple Silicon is not supported)
 - Docker with NVIDIA Container Toolkit
 - NVIDIA GPU with CUDA support
 

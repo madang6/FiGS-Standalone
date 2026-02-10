@@ -12,6 +12,9 @@
 #   - fully_fused_projection returns 8 values (adds batch_ids as first element)
 #   - isect_tiles uses n_images/image_ids instead of n_cameras/camera_ids
 
+# NOTE: UBUNTU_VERSION is not truly configurable — the runtime stage hardcodes
+# version-specific library packages (e.g., libboost-filesystem1.74.0, libceres2,
+# libgoogle-glog0v5) that are specific to Ubuntu 22.04 (Jammy).
 ARG UBUNTU_VERSION=22.04
 ARG NVIDIA_CUDA_VERSION=11.8.0
 ARG CUDA_ARCHITECTURES="90;89;86;80;75;70;61"
@@ -48,7 +51,6 @@ RUN apt-get update && \
         build-essential \
         pkg-config \
         linux-libc-dev \
-        libxcrypt-dev \
         libboost-program-options-dev \
         libboost-filesystem-dev \
         libboost-graph-dev \
@@ -175,11 +177,11 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir --no-deps torchtyping
 
 # CLIP from OpenAI (required by gemsplat)
-RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
+RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git@dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1
 
 # === ACADOS BUILD ===
 # Build acados for MPC-based trajectory control
-RUN git clone https://github.com/acados/acados.git /opt/acados && \
+RUN git clone --branch v0.5.3 https://github.com/acados/acados.git /opt/acados && \
     cd /opt/acados && \
     git submodule update --init --recursive && \
     mkdir -p build && \
