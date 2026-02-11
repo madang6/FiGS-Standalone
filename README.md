@@ -11,6 +11,7 @@ The easiest way to get started is with Docker:
 ```bash
 git clone https://github.com/madang6/FiGS-Standalone.git
 cd FiGS-Standalone
+git submodule update --init gemsplat
 
 # Detect your GPU's compute capability and build
 CUDA_ARCHITECTURES=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.') docker compose build

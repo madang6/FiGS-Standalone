@@ -20,7 +20,13 @@ services:
     environment:
       - DISPLAY=${DISPLAY:-}
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     network_mode: host
     shm_size: '12gb'
     stdin_open: true
