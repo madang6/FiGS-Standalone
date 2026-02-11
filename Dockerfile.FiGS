@@ -261,8 +261,8 @@ ENV LD_LIBRARY_PATH=/opt/acados/lib:${LD_LIBRARY_PATH}
 ADD https://github.com/acados/tera_renderer/releases/download/v0.2.0/t_renderer-v0.2.0-linux-amd64 /opt/acados/bin/t_renderer
 RUN chmod +x /opt/acados/bin/t_renderer
 
-# Install nerfstudio CLI
-RUN /bin/bash -c 'ns-install-cli --mode install'
+# Install nerfstudio CLI tab completions (may not exist in all nerfstudio versions)
+RUN which ns-install-cli && ns-install-cli --mode install || true
 
 WORKDIR /workspace
 
