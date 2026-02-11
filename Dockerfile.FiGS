@@ -19,7 +19,7 @@ ARG UBUNTU_VERSION=22.04
 ARG NVIDIA_CUDA_VERSION=11.8.0
 ARG CUDA_ARCHITECTURES=""
 ARG GSPLAT_VERSION=1.5.3
-ARG NERFSTUDIO_VERSION="v1.1.5"
+ARG NERFSTUDIO_VERSION="main"
 
 # === SOURCE STAGE ===
 # Pull nerfstudio source either from local copy or git
@@ -171,7 +171,8 @@ RUN pip install --no-cache-dir \
     ipympl \
     rich \
     "imageio[ffmpeg]" \
-    roma
+    roma \
+    open3d
 
 # gemsplat dependencies (from gemsplat/pyproject.toml)
 # Pre-install these so container startup is fast
@@ -205,6 +206,9 @@ RUN git clone --branch v0.5.3 https://github.com/acados/acados.git /opt/acados &
 # Set acados environment variables
 ENV ACADOS_SOURCE_DIR=/opt/acados
 ENV LD_LIBRARY_PATH=/opt/acados/lib:${LD_LIBRARY_PATH}
+
+# Re-pin numpy after all installs (downstream packages may pull in numpy 2.x)
+RUN pip install --no-cache-dir numpy==1.26.4
 
 # Fix permissions
 RUN chmod -R go=u /usr/local/lib/python3.10 && \

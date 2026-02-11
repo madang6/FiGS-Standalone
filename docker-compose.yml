@@ -46,7 +46,15 @@ services:
         # Install editable packages as host user so .egg-info is host-owned
         runuser -u $$USERNAME -- python -m pip install -e /workspace/FiGS-Standalone --no-deps -q || { echo 'FATAL: failed to install figs'; exit 1; }
         runuser -u $$USERNAME -- python -m pip install -e /workspace/FiGS-Standalone/gemsplat --no-deps -q || { echo 'FATAL: failed to install gemsplat'; exit 1; }
-        python -m pip install -e /workspace/coverage_view_selection/nerfstudio --no-deps -q || { echo 'FATAL: failed to install custom nerfstudio'; exit 1; }
+        # Replace system nerfstudio with custom fork if available
+        if [ -d /workspace/coverage_view_selection/nerfstudio ]; then
+          python -m pip uninstall nerfstudio -y -q
+          rm -rf /usr/local/lib/python3.10/dist-packages/nerfstudio
+          python -m pip install -e /workspace/coverage_view_selection/nerfstudio --no-deps -q || { echo 'FATAL: failed to install custom nerfstudio'; exit 1; }
+          echo 'Installed custom nerfstudio fork from coverage_view_selection'
+        else
+          echo 'No custom nerfstudio fork found, using stock nerfstudio from image'
+        fi
         runuser -u $$USERNAME -- python -m pip install -e /workspace/coverage_view_selection --no-deps -q || { echo 'FATAL: failed to install coverage_view_selection'; exit 1; }
         # Verify all packages are importable
         runuser -u $$USERNAME -- python -c 'import figs, gemsplat, nbv_gym' || { echo 'FATAL: package import check failed'; exit 1; }
