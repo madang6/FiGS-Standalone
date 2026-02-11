@@ -11,9 +11,14 @@ The easiest way to get started is with Docker:
 ```bash
 git clone https://github.com/madang6/FiGS-Standalone.git
 cd FiGS-Standalone
-docker compose build              # ~20-30 min first time
+
+# Detect your GPU's compute capability and build
+CUDA_ARCHITECTURES=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.') docker compose build
+
 docker compose run --rm figs      # starts a shell with everything ready
 ```
+
+`CUDA_ARCHITECTURES` must be set to your GPU's compute capability (e.g., `89` for L40S, `86` for A6000/RTX 3090). The build will fail with instructions if it is not set.
 
 Editable packages (figs, gemsplat, coverage_view_selection) are installed automatically on startup. Source code is bind-mounted, so edits on the host are immediately visible in the container and vice versa.
 
