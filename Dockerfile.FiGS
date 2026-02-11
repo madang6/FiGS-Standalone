@@ -17,7 +17,7 @@
 # libgoogle-glog0v5) that are specific to Ubuntu 22.04 (Jammy).
 ARG UBUNTU_VERSION=22.04
 ARG NVIDIA_CUDA_VERSION=11.8.0
-ARG CUDA_ARCHITECTURES="90;89;86;80;75;70;61"
+ARG CUDA_ARCHITECTURES=""
 ARG GSPLAT_VERSION=1.5.3
 ARG NERFSTUDIO_VERSION=""
 
@@ -38,12 +38,24 @@ ARG NVIDIA_CUDA_VERSION
 ARG UBUNTU_VERSION
 ARG GSPLAT_VERSION
 
+RUN if [ -z "$CUDA_ARCHITECTURES" ]; then \
+      echo ""; \
+      echo "ERROR: CUDA_ARCHITECTURES is not set."; \
+      echo "Set it to your GPU's compute capability, e.g.:"; \
+      echo "  CUDA_ARCHITECTURES=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.') docker compose build"; \
+      echo ""; \
+      exit 1; \
+    fi
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV QT_XCB_GL_INTEGRATION=xcb_egl
 
 # System dependencies (same as official nerfstudio + acados deps)
 # libxcrypt-dev, pkg-config, linux-libc-dev added for broader build compatibility
-RUN apt-get update && \
+# NOTE: security.ubuntu.com removed to work around mirror inconsistency (404s for libexpat1).
+# jammy-updates on archive.ubuntu.com includes all security patches.
+RUN sed -i '/security.ubuntu.com/d' /etc/apt/sources.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         git \
         wget \
@@ -177,7 +189,7 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir --no-deps torchtyping
 
 # CLIP from OpenAI (required by gemsplat)
-RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git@dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1
+RUN pip install --no-cache-dir --no-build-isolation git+https://github.com/openai/CLIP.git@dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1
 
 # === ACADOS BUILD ===
 # Build acados for MPC-based trajectory control
@@ -208,7 +220,8 @@ ARG GSPLAT_VERSION
 LABEL org.opencontainers.image.description="FiGS environment with nerfstudio, gsplat ${GSPLAT_VERSION}, and acados"
 LABEL org.opencontainers.image.source="https://github.com/StanfordMSL/FiGS-Standalone"
 
-RUN apt-get update && \
+RUN sed -i '/security.ubuntu.com/d' /etc/apt/sources.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         libboost-filesystem1.74.0 \
         libboost-program-options1.74.0 \

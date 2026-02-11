@@ -9,6 +9,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.FiGS
+      args:
+        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-}
     volumes:
       # Mount FiGS-Standalone for editable install (editable from host and container)
       - .:/workspace/FiGS-Standalone
