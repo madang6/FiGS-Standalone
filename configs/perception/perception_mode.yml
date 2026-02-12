@@ -5,3 +5,9 @@ perception_type: "similarity"
 
 # visual_mode: "rgb"
 # perception_mode: "similarity"
+
+# Extra model outputs to capture during simulation (empty list or absent = none)
+# Available channels depend on the trained model (e.g. nbv-splat: "view_metric")
+extra_channels: []
+# extra_channels:
+#   - "view_metric"

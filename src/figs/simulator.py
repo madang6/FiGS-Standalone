@@ -254,12 +254,7 @@ class Simulator:
 
         # Rollout Variables
         Tro,Xro,Uro = np.zeros(Nctl+1),np.zeros((nx,Nctl+1)),np.zeros((nu,Nctl))
-        Imgs_rgb = np.zeros((Nctl,height,width,channels),dtype=np.uint8)
-        Imgs_sem = np.zeros((Nctl,height,width,channels),dtype=np.uint8)
-        Imgs_depth = np.zeros((Nctl,height,width,channels),dtype=np.uint8)
-        if validation:
-            Imgs_val = np.zeros((Nctl,height,width,channels),dtype=np.uint8)
-        # Iro = np.zeros((Nctl,height,width,channels),dtype=np.uint8)
+        Iro_lists = {}  # channel_name -> list of frames (built dynamically)
         Xro[:,0] = x0
 
         # Diagnostics Variables
@@ -289,9 +284,10 @@ class Simulator:
                 Tb2w = th.xv_to_T(xcr)
                 T_c2w = Tb2w@T_c2b
 
+                extra_ch = self.gsplat.extra_channels
+
                 if vision_processor is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w)
-                    # img_cr = icr["semantic"]
+                    image_dict = self.gsplat.render_rgb(camera,T_c2w, extra_channels=extra_ch)
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
                     start = time.time()
@@ -300,7 +296,7 @@ class Simulator:
                     if verbose:
                         times.append(end-start)
                 elif perception == "semantic_depth" and perception_type != "clipseg" and query is not None:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w,query)
+                    image_dict = self.gsplat.render_rgb(camera,T_c2w,query, extra_channels=extra_ch)
                     icr = image_dict["semantic"]
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
@@ -308,13 +304,8 @@ class Simulator:
                     if validation:
                         icr_val, _ = vision_processor.process(image=icr_rgb, prompt=query)
                 else:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w)
+                    image_dict = self.gsplat.render_rgb(camera,T_c2w, extra_channels=extra_ch)
                     icr = image_dict["rgb"]
-                # if perception == "semantic_depth" and query is not None:
-                #     img_dict = self.gsplat.render_rgb(camera,T_c2w,query)
-                #     icr = img_dict["semantic"]
-                # else:
-                #     icr = self.gsplat.render_rgb(camera,T_c2w)
 
                 # Add sensor noise and syncronize estimated state
                 if use_fusion:
@@ -350,17 +341,19 @@ class Simulator:
             if i % n_sim2ctl == 0:
                 k = i//n_sim2ctl
 
+                # Store rendered channels dynamically
                 if query is not None:
-                    # if isinstance(icr, tuple):
-                    #     for idx, item in enumerate(icr):
-                    #         print(f"icr[{idx}] type: {type(item)}, shape: {getattr(item, 'shape', 'N/A')}")
-                    Imgs_sem[k,:,:,:] = icr
-                    Imgs_rgb[k,:,:,:] = icr_rgb
-                    Imgs_depth[k,:,:,:] = icr_depth                
+                    image_dict["semantic"] = icr  # may be from vision_processor
                     if validation and perception_type != "clipseg":
-                        Imgs_val[k,:,:,:] = icr_val
-                else:
-                    Imgs_rgb[k,:,:,:] = icr
+                        image_dict["validation"] = icr_val
+
+                for ch_name, ch_img in image_dict.items():
+                    if ch_name == "depth_raw":
+                        continue  # skip raw float arrays
+                    if ch_name not in Iro_lists:
+                        Iro_lists[ch_name] = []
+                    Iro_lists[ch_name].append(ch_img)
+
                 Tro[k] = tcr
                 Xro[:,k+1] = xcr
                 Uro[:,k] = ucm
@@ -375,12 +368,8 @@ class Simulator:
             print(f"Min time/frame: {min(times)*1000:.1f} ms")
             print(f"Max time/frame: {max(times)*1000:.1f} ms")
 
-        if validation and perception_type != "clipseg" and query is not None:
-            Iro = {"semantic":Imgs_sem,"depth":Imgs_depth,"rgb":Imgs_rgb,"validation":Imgs_val}
-        elif query is not None:
-            Iro = {"semantic":Imgs_sem,"depth":Imgs_depth,"rgb":Imgs_rgb}
-        else:
-            Iro = {"rgb":Imgs_rgb}
+        # Stack collected frames into arrays
+        Iro = {name: np.stack(frames) for name, frames in Iro_lists.items()}
 
         # Log final time
         Tro[Nctl] = t0+Nsim/hz_sim

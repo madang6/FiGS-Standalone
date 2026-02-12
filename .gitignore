@@ -16,6 +16,7 @@ notebooks/**
 !notebooks/figs_generate_3dgs_example.py
 !notebooks/figs_flightsim_example.py
 !notebooks/figs_export_3dgs_example.py
+!notebooks/figs_simulate_flight_example.py
 
 src/scripts/**
 
@@ -34,3 +35,6 @@ configs/course/*
 !configs/course/track_spiral.json
 
 *.sh
+!install-figs.sh
+**/splatfacto/
+**/gemsplat/

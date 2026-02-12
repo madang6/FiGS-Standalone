@@ -4,6 +4,27 @@ FiGS is a framework for trajectory optimization and control in Gaussian Splattin
 
 ## Installation
 
+### Prerequisites
+
+- NVIDIA GPU with drivers installed
+- Docker Engine ([install guide](https://docs.docker.com/engine/install/ubuntu/))
+- NVIDIA Container Toolkit (for GPU access inside containers):
+
+```bash
+# Add the NVIDIA container toolkit repository
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# Configure Docker to use the NVIDIA runtime and restart
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
 ### Docker (Recommended)
 
 The easiest way to get started is with Docker:
@@ -28,6 +49,12 @@ See [DOCKER_SETUP.md](DOCKER_SETUP.md) for full details, configuration options, 
 #### For downstream projects
 
 FiGS serves as the base environment for other projects like [SINGER](https://github.com/madang6/SINGER). Those projects include their own `docker-compose.yml` that references the `figs:latest` image built here.
+
+#### If you want to remove and restart
+```bash
+docker rmi figs:latest
+rm -rf FiGS-Standalone # remember to move FiGS-Standalone/3dgs/ out to preserve any data!
+```
 
 ### Manual Installation (Alternative)
 
