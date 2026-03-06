@@ -284,10 +284,19 @@ class Simulator:
                 Tb2w = th.xv_to_T(xcr)
                 T_c2w = Tb2w@T_c2b
 
-                extra_ch = self.gsplat.extra_channels
+                def _render_rgb(camera, T_c2w, query=None):
+                    extra_ch = getattr(self.gsplat, "extra_channels", None)
+                    if extra_ch is None and query is None:
+                        return self.gsplat.render_rgb(camera, T_c2w)
+                    elif extra_ch is None and query is not None:
+                        return self.gsplat.render_rgb(camera, T_c2w, query)
+                    elif extra_ch is not None and query is None:
+                        return self.gsplat.render_rgb(camera, T_c2w, extra_channels=extra_ch)
+                    elif extra_ch is not None and query is not None:
+                        return self.gsplat.render_rgb(camera, T_c2w, query, extra_channels=extra_ch)
 
                 if vision_processor is not None and perception == "semantic_depth" and perception_type == "clipseg" and query is not None:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w, extra_channels=extra_ch)
+                    image_dict = _render_rgb(camera, T_c2w)
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
                     start = time.time()
@@ -296,7 +305,7 @@ class Simulator:
                     if verbose:
                         times.append(end-start)
                 elif perception == "semantic_depth" and perception_type != "clipseg" and query is not None:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w,query, extra_channels=extra_ch)
+                    image_dict = _render_rgb(camera, T_c2w, query)
                     icr = image_dict["semantic"]
                     icr_rgb = image_dict["rgb"]
                     icr_depth = image_dict["depth"]
@@ -304,7 +313,7 @@ class Simulator:
                     if validation:
                         icr_val, _ = vision_processor.process(image=icr_rgb, prompt=query)
                 else:
-                    image_dict = self.gsplat.render_rgb(camera,T_c2w, extra_channels=extra_ch)
+                    image_dict = _render_rgb(camera, T_c2w)
                     icr = image_dict["rgb"]
 
                 # Add sensor noise and syncronize estimated state

@@ -550,8 +550,11 @@ class GSplat():
             try:
                 clip_embeds =  self.pipeline.model.clip_embeds
             except AttributeError:
-                # extract the semantic embeddings
-                clip_embeds = self.pipeline.model.clip_field(self.pipeline.model.means).float().detach()
+                try:
+                    # extract the semantic embeddings
+                    clip_embeds = self.pipeline.model.clip_field(self.pipeline.model.means).float().detach()
+                except AttributeError:
+                    clip_embeds = None
 
         # color computed from the Spherical Harmonics
         pcd_colors = SH2RGB(pcd_colors_coeff).squeeze()
@@ -567,10 +570,10 @@ class GSplat():
             pcd_colors = pcd_colors[mask]
             
             # other attributes of the Gaussian
-            opacities, scales, quats, clip_embeds \
-                = opacities[mask], scales, quats[mask], clip_embeds[mask]
-            # opacities, scales, quats \
-            #     = opacities[mask], scales, quats[mask]#, clip_embeds[mask]
+            opacities, scales, quats \
+                = opacities[mask], scales, quats[mask]
+            if clip_embeds is not None:
+                clip_embeds = clip_embeds[mask]
         else:
             mask = None
             
