@@ -37,9 +37,19 @@ simulate_examples = [
     # ('backroom',   'baseline', 'carl', 'vrmpc_fr', 'cluttered_env_track'),
     # ('mid_gate',   'baseline', 'carl', 'vrmpc_fr', 'robustness_track'),
     # ('packardpark',   'baseline', 'carl', 'vrmpc_rrt', 'track_spiral')
-    ('flightroom_ssv_exp/splatfacto/2026-02-02_140315',   'baseline', 'carl', 'vrmpc_rrt', 'track_spiral')
+    # /home/admin/StanfordMSL/FiGS-Standalone/3dgs/workspace/outputs/flightroom_ssv_exp/splatfacto/2026-02-10_184843/config.yml
+    # ('flightroom_ssv_exp/splatfacto/2026-02-10_184843',   'baseline', 'carl', 'vrmpc_rrt', 'track_spiral')
     # ('sv_917_3_left_gemsplat', 'baseline', 'carl', 'vrmpc_rrt', 'inward_spiral'),
     # ('sv_1007_gemsplat', 'baseline', 'carl', 'vrmpc_fr', 'robustness_track'),
+    # ('spheres/gemsplat/2026-02-17_062303', 'baseline', 'carl', 'vrmpc_rrt', 'track_spiral'),
+    # ('packardpark/gemsplat/2026-02-17_052524', 'baseline', 'carl', 'vrmpc_rrt', 'track_spiral'),
+    # ('flightroom_lowres/gemsplat/2026-02-17_071100', 'baseline', 'carl', 'vrmpc_rrt', 'track_spiral'),
+    # ('indooroutdoor/gemsplat/2026-02-17_080228', 'baseline', 'carl', 'vrmpc_rrt', 'track_spiral'),
+    # ('flightroom_ssv_exp/gemsplat/2026-02-12_073100',   'baseline', 'carl', 'vrmpc_rrt', 'track_spiral')
+    # ('flightroom_ssv_exp/gemsplat/2026-02-27_025654', 'baseline', 'carl', 'vrmpc_rrt', 'circle_along_track')
+    # ('flightroom_ssv_exp/gemsplat/2026-02-27_025654', 'baseline', 'carl', 'vrmpc_rrt', 'circle_toward_center')
+    ('flightroom_ssv_exp/gemsplat/2026-02-27_025654', 'baseline', 'carl', 'vrmpc_rrt', 'square_toward_center')
+    
 ]
 
 # query = 'ladder'
