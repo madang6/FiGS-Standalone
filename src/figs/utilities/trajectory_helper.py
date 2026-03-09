@@ -396,7 +396,7 @@ def filter_branches(paths, top_k=1, hover_mode=False, verbose=False):
 def filter_branches_just_distance(paths, top_k=1, hover_mode=False):
     """
     Filters the branches of paths based on hover_mode and adjacency constraints,
-    then keeps the top_k branches whose furthest‐distance from their own start point
+    then keeps the top_k branches whose furthest-distance from their own start point
     is largest.
 
     Parameters:
@@ -413,7 +413,7 @@ def filter_branches_just_distance(paths, top_k=1, hover_mode=False):
     for idbr, positions in enumerate(paths):
         positions = np.array(positions)
 
-        # 1) Hover-mode “in-radius” pruning
+        # 1) Hover-mode "in-radius" pruning
         if hover_mode:
             radius = 1.5
             filtered_positions = [positions[0]]
@@ -708,7 +708,7 @@ def process_obstacle_clusters_and_sample(
     1) Filter obstacle points inside env_bounds
     2) Cluster them with DBSCAN → labels
     3) For each cluster:
-        - compute centroid and its max‐radius
+        - compute centroid and its max-radius
         - set R = max_radius + clearance
         - sample `sample_size` points equally around centroid at R
         - reject any that collide or leave env_bounds
@@ -735,10 +735,10 @@ def process_obstacle_clusters_and_sample(
     centroids, rings = [], []
 
     for lab, pts_c in clusters.items():
-        # 3a) centroid & cluster‐radius
+        # 3a) centroid & cluster-radius
         ctr = pts_c.mean(axis=0)
 
-        # height‐filter
+        # height-filter
         if not (min_h <= ctr[2] <= max_h):
             continue
 
@@ -746,7 +746,7 @@ def process_obstacle_clusters_and_sample(
         R_cluster = radii.max()
         R = R_cluster + clearance
 
-        # 3b) generate equal‐angle candidates
+        # 3b) generate equal-angle candidates
         thetas = np.linspace(0, 2*np.pi, sample_size, endpoint=False)
         circle = np.vstack([
             ctr[0] + R*np.cos(thetas),
@@ -1018,10 +1018,10 @@ def process_branch(branch_id, positions, dt, constant_velocity, obj_loc, pad_t, 
     def compute_quaternions(trajectory: np.ndarray) -> list[np.ndarray]:
         """
         For each timestep i, look at (vx, vy) = (trajectory[i,4], trajectory[i,5]).
-        If speed > 1e-6, compute yaw = atan2(vy, vx), then build a ZYX‐Euler quaternion
+        If speed > 1e-6, compute yaw = atan2(vy, vx), then build a ZYX-Euler quaternion
         q = from_euler('ZYX', [yaw, 0, 0]).
         If speed ≈ 0, simply reuse the previous quaternion.
-        Use obedient_quaternion(…) to keep quaternion‐sign continuous.
+        Use obedient_quaternion(…) to keep quaternion-sign continuous.
         Returns a Python list of length N, each entry = np.array([qx, qy, qz, qw]).
         """
         quaternions: list[np.ndarray] = []
@@ -1034,13 +1034,13 @@ def process_branch(branch_id, positions, dt, constant_velocity, obj_loc, pad_t, 
 
             if speed_xy > eps:
                 raw_yaw = np.arctan2(vy, vx)  # in (−π, +π]
-                # Build a pure‐yaw quaternion using ZYX convention:
+                # Build a pure-yaw quaternion using ZYX convention:
                 #   R = Rz(raw_yaw) * Ry(0) * Rx(0) = Rz(raw_yaw).
                 quat = Rotation.from_euler("ZYX", [raw_yaw, 0.0, 0.0], degrees=False).as_quat()
             else:
                 # if speed is near zero, freeze at the previous quaternion
                 if i == 0:
-                    # First frame, no “previous” quaternion exists → use identity
+                    # First frame, no "previous" quaternion exists → use identity
                     quat = np.array([0.0, 0.0, 0.0, 1.0])
                 else:
                     quat = quaternions[-1].copy()
@@ -1359,6 +1359,56 @@ def parameterize_RRT_trajectories(branches, obj_loc, constant_velocity, sampling
     else:
         return new_branches, nodes_RRT
 
+def waypoints_to_yaw(
+    positions: np.ndarray,
+    mode: str,
+    center: tuple = (0.0, 0.0),
+) -> np.ndarray:
+    """Compute yaw angles for a sequence of waypoints.
+
+    Args:
+        positions: (N, 3) or (N, 2) waypoint positions.
+        mode: One of "along-track", "toward-center", "away-from-center".
+        center: (cx, cy) reference point for toward/away modes.
+
+    Returns:
+        (N,) array of unwrapped yaw angles in radians.
+    """
+    N = len(positions)
+    cx, cy = center
+    eps = 1e-6
+
+    if mode == "along-track":
+        yaw = np.zeros(N)
+        for i in range(N - 1):
+            dx = positions[i + 1, 0] - positions[i, 0]
+            dy = positions[i + 1, 1] - positions[i, 1]
+            yaw[i] = np.arctan2(dy, dx)
+        # Last point: backward difference
+        dx = positions[-1, 0] - positions[-2, 0]
+        dy = positions[-1, 1] - positions[-2, 1]
+        yaw[-1] = np.arctan2(dy, dx)
+
+    elif mode in ("toward-center", "away-from-center"):
+        sign = 1.0 if mode == "toward-center" else -1.0
+        yaw = np.zeros(N)
+        prev_yaw = None
+        for i in range(N):
+            dx = sign * (cx - positions[i, 0])
+            dy = sign * (cy - positions[i, 1])
+            if np.hypot(dx, dy) < eps:
+                # Degenerate: camera at center — keep previous yaw
+                yaw[i] = prev_yaw if prev_yaw is not None else 0.0
+            else:
+                yaw[i] = np.arctan2(dy, dx)
+            prev_yaw = yaw[i]
+
+    else:
+        raise ValueError(f"Unknown yaw mode: {mode!r}")
+
+    return np.unwrap(yaw)
+
+
 def traj_orient(
     trajectory: np.ndarray,   # shape = (N,3), camera positions [x,y,z]
     quaternions:  np.ndarray, # shape = (N,4), unused here but kept in signature
@@ -1367,57 +1417,25 @@ def traj_orient(
     """
     Returns an (N,4) array of quaternions (qx,qy,qz,qw) so that:
       - local +X (camera forward) points horizontally (in XY) toward goal_xyz
-      - local +Z is “down” in world, so that the same ZYX‐Euler convention matches your optimizer.
+      - local +Z is "down" in world, so that the same ZYX-Euler convention matches your optimizer.
 
-    We build each frame’s yaw = atan2(dy,dx), then produce
-      q = Rotation.from_euler("ZYX", [yaw, 0, 0]).as_quat()
-
-    Special handling:
-      • If camera_x,y == goal_x,y (i.e. dist_xy < eps), we keep the previous yaw (no jump).
-      • We “unwrap” yaw around ±π so there is no discontinuous 360° flip.
+    Delegates yaw computation to waypoints_to_yaw("toward-center"), then
+    converts to quaternions via ZYX-Euler (yaw, 0, 0).
 
     Returns:
       new_quaternions: np.ndarray of shape (N,4), dtype=float.
     """
+    yaw = waypoints_to_yaw(
+        trajectory, mode="toward-center", center=(goal_xyz[0], goal_xyz[1]),
+    )
+
     N = len(trajectory)
     new_quats = np.zeros((N, 4), dtype=float)
-    eps = 1e-6
-
-    prev_yaw_unwrapped = None
 
     for i in range(N):
-        cam_x, cam_y, _ = trajectory[i]
-        dx = goal_xyz[0] - cam_x
-        dy = goal_xyz[1] - cam_y
-        dist_xy = np.hypot(dx, dy)
+        q = Rotation.from_euler("ZYX", [yaw[i], 0.0, 0.0], degrees=False).as_quat()
 
-        if dist_xy < eps:
-            # camera is (almost) directly above/below the goal in XY
-            if prev_yaw_unwrapped is None:
-                raw_yaw = 0.0
-            else:
-                raw_yaw = prev_yaw_unwrapped
-        else:
-            raw_yaw = np.arctan2(dy, dx)  # in (−π, +π]
-
-        # Unwrap around ±π so yaw moves smoothly
-        if prev_yaw_unwrapped is None:
-            unwrapped_yaw = raw_yaw
-        else:
-            delta = raw_yaw - prev_yaw_unwrapped
-            if delta > np.pi:
-                raw_yaw -= 2.0 * np.pi
-            elif delta < -np.pi:
-                raw_yaw += 2.0 * np.pi
-            unwrapped_yaw = raw_yaw
-
-        prev_yaw_unwrapped = unwrapped_yaw
-
-        # Build pure‐yaw quaternion via the ZYX convention:
-        #   (yaw, pitch=0, roll=0) in “ZYX” → R = Rx(0) * Ry(0) * Rz(unwrapped_yaw)
-        q = Rotation.from_euler("ZYX", [unwrapped_yaw, 0.0, 0.0], degrees=False).as_quat()
-
-        # continuity in sign for logging‐smoothness (not physically necessary)
+        # continuity in sign for logging-smoothness (not physically necessary)
         if i > 0 and np.dot(q, new_quats[i-1]) < 0:
             q = -q
 
@@ -1766,6 +1784,92 @@ def RO_to_tXU(RO:Tuple[np.ndarray,np.ndarray,np.ndarray]) -> np.ndarray:
     return tXU
 
 
+def waypoints_to_keyframes(
+    positions: np.ndarray,
+    yaw: np.ndarray,
+    speed: float,
+    Nco: int = 6,
+) -> dict:
+    """Convert waypoints + yaw angles into a keyframes dict for min-snap.
+
+    Produces the standard configs/course JSON format:
+      - Endpoints (first/last): ``[value, derivative]``
+      - Intermediates: ``[value, None, None]``
+    Timing is derived from cumulative arc-length at constant *speed*.
+
+    Args:
+        positions: (N+1, 3) waypoint positions.
+        yaw: (N+1,) yaw angles in radians (should already be unwrapped).
+        speed: Constant velocity in m/s.
+        Nco: Number of polynomial coefficients (default 6 for min-snap).
+
+    Returns:
+        ``{"Nco": int, "keyframes": {"fo0": {"t": ..., "fo": [...]}, ...}}``
+    """
+    N = len(positions) - 1
+
+    # Arc-length timing at constant speed
+    diffs = np.diff(positions, axis=0)
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    cum_dist = np.insert(np.cumsum(seg_lengths), 0, 0.0)
+    total_dist = cum_dist[-1]
+
+    if total_dist < 1e-8:
+        raise ValueError(f"Trajectory has near-zero length ({total_dist:.2e})")
+
+    total_time = total_dist / speed
+    times = (cum_dist / total_dist) * total_time
+
+    keyframes = {}
+    for k in range(N + 1):
+        t_k = float(times[k])
+        x_k = float(positions[k, 0])
+        y_k = float(positions[k, 1])
+        z_k = float(positions[k, 2])
+        theta_k = float(yaw[k])
+
+        is_endpoint = (k == 0 or k == N)
+
+        if is_endpoint:
+            # Velocity via finite difference
+            if k == 0:
+                dt = times[1] - times[0]
+                if dt > 1e-8:
+                    vx = (positions[1, 0] - positions[0, 0]) / dt
+                    vy = (positions[1, 1] - positions[0, 1]) / dt
+                    vz = (positions[1, 2] - positions[0, 2]) / dt
+                    omega = (yaw[1] - yaw[0]) / dt
+                else:
+                    vx = vy = vz = omega = 0.0
+            else:
+                dt = times[N] - times[N - 1]
+                if dt > 1e-8:
+                    vx = (positions[N, 0] - positions[N - 1, 0]) / dt
+                    vy = (positions[N, 1] - positions[N - 1, 1]) / dt
+                    vz = (positions[N, 2] - positions[N - 1, 2]) / dt
+                    omega = (yaw[N] - yaw[N - 1]) / dt
+                else:
+                    vx = vy = vz = omega = 0.0
+
+            fo = [
+                [x_k, float(vx)],
+                [y_k, float(vy)],
+                [z_k, float(vz)],
+                [theta_k, float(omega)],
+            ]
+        else:
+            fo = [
+                [x_k, None, None],
+                [y_k, None, None],
+                [z_k, None, None],
+                [theta_k, None, None],
+            ]
+
+        keyframes[f"fo{k}"] = {"t": t_k, "fo": fo}
+
+    return {"Nco": Nco, "keyframes": keyframes}
+
+
 def transforms_to_keyframes(
     json_path: str,
     name: str,
@@ -1854,76 +1958,16 @@ def transforms_to_keyframes(
     # 6) Sample N+1 keyframes evenly along the path (by distance)
     path_samples = np.linspace(0, total_distance, N + 1)
 
-    keyframes = {}
-    for k in range(N + 1):
-        s_k = path_samples[k]
-        t_k = (s_k / total_distance) * total_time
+    sampled_positions = np.column_stack([
+        interp_x(path_samples),
+        interp_y(path_samples),
+        interp_z(path_samples),
+    ])
+    sampled_yaw = interp_yaw(path_samples)
 
-        # Interpolate position and yaw
-        x_k = float(interp_x(s_k))
-        y_k = float(interp_y(s_k))
-        z_k = float(interp_z(s_k))
-        theta_k = float(interp_yaw(s_k))
-
-        is_endpoint = (k == 0 or k == N)
-
-        if is_endpoint:
-            # At endpoints: use velocity format [value, rate]
-            # Compute velocities by finite difference
-            if k == 0:
-                # Forward difference at start
-                s_next = path_samples[1]
-                x_next = float(interp_x(s_next))
-                y_next = float(interp_y(s_next))
-                z_next = float(interp_z(s_next))
-                theta_next = float(interp_yaw(s_next))
-
-                dt = (s_next / total_distance) * total_time - t_k
-                if dt > 1e-8:
-                    vx = (x_next - x_k) / dt
-                    vy = (y_next - y_k) / dt
-                    vz = (z_next - z_k) / dt
-                    omega = (theta_next - theta_k) / dt
-                else:
-                    vx = vy = vz = omega = 0.0
-            else:
-                # Backward difference at end
-                s_prev = path_samples[N - 1]
-                x_prev = float(interp_x(s_prev))
-                y_prev = float(interp_y(s_prev))
-                z_prev = float(interp_z(s_prev))
-                theta_prev = float(interp_yaw(s_prev))
-
-                dt = t_k - (s_prev / total_distance) * total_time
-                if dt > 1e-8:
-                    vx = (x_k - x_prev) / dt
-                    vy = (y_k - y_prev) / dt
-                    vz = (z_k - z_prev) / dt
-                    omega = (theta_k - theta_prev) / dt
-                else:
-                    vx = vy = vz = omega = 0.0
-
-            fo = [
-                [x_k, vx],
-                [y_k, vy],
-                [z_k, vz],
-                [theta_k, omega]
-            ]
-        else:
-            # At intermediate keyframes: use unconstrained format [value, None, None]
-            fo = [
-                [x_k, None, None],
-                [y_k, None, None],
-                [z_k, None, None],
-                [theta_k, None, None]
-            ]
-
-        keyframes[f"fo{k}"] = {
-            "t": t_k,
-            "fo": fo
-        }
-
-    return {"name": name, "Nco": Nco, "keyframes": keyframes}
+    result = waypoints_to_keyframes(sampled_positions, sampled_yaw, constant_velocity, Nco)
+    result["name"] = name
+    return result
 
 
 def save_keyframes_to_json(
